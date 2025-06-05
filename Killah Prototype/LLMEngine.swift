@@ -4,7 +4,6 @@
 //
 //  Created by Владислав Калиниченко on 03.05.2025.
 //
-
 import Foundation
 import Combine
 import AppKit
@@ -91,37 +90,42 @@ class LLMEngine: ObservableObject {
         let process = Process()
         task = process
 
-        // Try to find Python binary in the expected location within Resources
-        guard let venvPythonPath = findResourcePath("venv/bin/python3") else {
+        // Find Python binary - directly in Resources/venv/bin/python3
+        guard let resourcesPath = Bundle.main.resourcePath else {
+            updateEngineState(.error("Bundle resources path not found"))
+            return
+        }
+        
+        let venvPythonPath = resourcesPath + "/venv/bin/python3"
+        guard FileManager.default.fileExists(atPath: venvPythonPath) else {
+            print("❌ Python binary not found at: \(venvPythonPath)")
+            print("📁 Resources directory contents:")
+            if let contents = try? FileManager.default.contentsOfDirectory(atPath: resourcesPath) {
+                for item in contents {
+                    print("   - \(item)")
+                }
+            }
             updateEngineState(.error("Python binary not found"))
             return
         }
-        print("🐍 Python interpreter path: \(venvPythonPath)")
+        print("� Python interpreter path: \(venvPythonPath)")
 
-        // Try to find the Python script in Resources folder first, then fall back to main bundle
-        guard let scriptPath = findResourcePath("autocomplete", ofType: "py") else {
-             updateEngineState(.error("autocomplete.py not found"))
-             return
+        // Find Python script - directly in Resources/autocomplete.py
+        let scriptPath = resourcesPath + "/autocomplete.py"
+        guard FileManager.default.fileExists(atPath: scriptPath) else {
+            print("❌ Python script not found at: \(scriptPath)")
+            updateEngineState(.error("autocomplete.py not found"))
+            return
         }
         print("📜 Python script path: \(scriptPath)")
             
-        // Check for model file in Resources folder
-        let modelPath = (scriptPath as NSString).deletingLastPathComponent + "/minillm_export.pt"
-        if !FileManager.default.fileExists(atPath: modelPath) {
-            // Try alternative path in Resources
-            let altModelPath = Bundle.main.path(forResource: "Resources/minillm_export", ofType: "pt") ?? 
-                               Bundle.main.path(forResource: "minillm_export", ofType: "pt")
-            if let altPath = altModelPath, FileManager.default.fileExists(atPath: altPath) {
-                print("📊 Model file found at: \(altPath)")
-            } else {
-                print("⚠️ Model file 'minillm_export.pt' not found. Tried:")
-                print("   - \(modelPath)")
-                print("   - Resources/minillm_export.pt")
-                print("   - minillm_export.pt")
-                print("   Script might fail.")
-            }
-        } else {
+        // Check for model file - directly in Resources/minillm_export.pt
+        let modelPath = resourcesPath + "/minillm_export.pt"
+        if FileManager.default.fileExists(atPath: modelPath) {
             print("📊 Model file found at: \(modelPath)")
+        } else {
+            print("⚠️ Model file not found at: \(modelPath)")
+            print("   Script might fail if model is required.")
         }
 
         process.executableURL = URL(fileURLWithPath: venvPythonPath)

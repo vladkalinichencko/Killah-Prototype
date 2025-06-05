@@ -11,7 +11,7 @@ import SwiftUI
 struct Killah_PrototypeApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentViewInline()
+            ContentView()
         }
     }
 }

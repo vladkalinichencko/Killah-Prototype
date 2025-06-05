@@ -1,22 +1,71 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🚀🚀🚀 НАЧИНАЕМ УПАКОВКУ ПРИЛОЖЕНИЯ 🚀🚀🚀"
+echo "🚀 УПАКОВКА ПРИЛОЖЕНИЯ"
 echo "Время: $(date)"
-echo "Пользователь: $(whoami)"
-echo "Рабочая директория: $(pwd)"
 
-# Параметры
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"  # Корень проекта
-APP_NAME="Killah Prototype.app"                   # Имя приложения
-PYTHON_VERSION="3.12"                            # Версия Python
-PYTHON_FRAMEWORK_SRC="/Library/Frameworks/Python.framework"  # Исходный Python.framework
-VENV_NAME="venv"                                 # Имя виртуального окружения
+# Четкие пути
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP_NAME="Killah Prototype.app"
+PYTHON_VERSION="3.12"
+PYTHON_FRAMEWORK_SRC="/Library/Frameworks/Python.framework"
+VENV_NAME="venv"
 
-echo "📋 ПАРАМЕТРЫ УПАКОВКИ:"
-echo "   PROJECT_DIR: $PROJECT_DIR"
-echo "   APP_NAME: $APP_NAME"
-echo "   PYTHON_VERSION: $PYTHON_VERSION"
+# Пути сборки
+BUILD_DIR="$BUILT_PRODUCTS_DIR"
+APP_PATH="$BUILD_DIR/$APP_NAME"
+FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+RESOURCES_DIR="$APP_PATH/Contents/Resources"
+VENV_DST="$RESOURCES_DIR/$VENV_NAME"
+
+echo "📁 Приложение: $APP_PATH"
+
+# Проверка приложения
+if [ ! -d "$APP_PATH" ]; then
+  echo "❌ .app не найден: $APP_PATH"
+  exit 1
+fi
+
+echo "✅ .app найден"
+
+# Создаем папки
+mkdir -p "$FRAMEWORKS_DIR"
+mkdir -p "$RESOURCES_DIR"
+
+echo "📋 Копируем Python.framework..."
+cp -R -L "$PYTHON_FRAMEWORK_SRC" "$FRAMEWORKS_DIR/"
+echo "✅ Python.framework скопирован"
+
+echo "📋 Создаем venv..."
+PYTHON_BIN="$FRAMEWORKS_DIR/Python.framework/Versions/$PYTHON_VERSION/bin/python3"
+"$PYTHON_BIN" -m venv "$VENV_DST"
+echo "✅ venv создан"
+
+echo "📋 Устанавливаем зависимости..."
+source "$VENV_DST/bin/activate"
+pip install -r "$PROJECT_DIR/Resources/requirements.txt"
+deactivate
+echo "✅ Зависимости установлены"
+
+echo "📋 Копируем Python файлы..."
+cp "$PROJECT_DIR/Resources/autocomplete.py" "$RESOURCES_DIR/"
+cp "$PROJECT_DIR/Resources/minillm_export.pt" "$RESOURCES_DIR/"
+cp "$PROJECT_DIR/Resources/requirements.txt" "$RESOURCES_DIR/"
+echo "✅ Python файлы скопированы"
+
+echo "📋 Исправляем пути библиотек..."
+PYBIN="$VENV_DST/bin/python3"
+install_name_tool -change \
+  "/Library/Frameworks/Python.framework/Versions/$PYTHON_VERSION/lib/libpython${PYTHON_VERSION}.dylib" \
+  "@executable_path/../../../Frameworks/Python.framework/Versions/$PYTHON_VERSION/lib/libpython${PYTHON_VERSION}.dylib" \
+  "$PYBIN"
+echo "✅ Пути исправлены"
+
+echo "📋 Переподписываем python3..."
+codesign --force --sign - "$PYBIN"
+echo "✅ Переподписано"
+
+echo "🎉 УПАКОВКА ЗАВЕРШЕНА УСПЕШНО!"
 echo "   PYTHON_FRAMEWORK_SRC: $PYTHON_FRAMEWORK_SRC"
 echo "   VENV_NAME: $VENV_NAME"
 
@@ -54,6 +103,55 @@ echo "   RESOURCES_DIR: $RESOURCES_DIR"
 echo "   VENV_DST: $VENV_DST"
 
 echo "⏳ Старт упаковки .app..."
+
+# Умная проверка - пропускаем упаковку если все уже готово
+echo "🔍 ПРОВЕРЯЕМ, НУЖНА ЛИ УПАКОВКА..."
+
+# Проверяем, есть ли уже все необходимое
+NEED_PACKAGING=false
+
+# Проверяем Python.framework
+if [ ! -d "$FRAMEWORKS_DIR/Python.framework" ]; then
+    echo "   ❌ Python.framework отсутствует - нужна упаковка"
+    NEED_PACKAGING=true
+fi
+
+# Проверяем venv
+if [ ! -d "$VENV_DST" ] || [ ! -f "$VENV_DST/bin/python3" ]; then
+    echo "   ❌ venv отсутствует или поврежден - нужна упаковка"
+    NEED_PACKAGING=true
+fi
+
+# Проверяем torch в venv
+if [ -f "$VENV_DST/bin/python3" ]; then
+    if ! "$VENV_DST/bin/python3" -c "import torch" 2>/dev/null; then
+        echo "   ❌ torch не установлен в venv - нужна упаковка"
+        NEED_PACKAGING=true
+    fi
+fi
+
+# Проверяем файлы ресурсов
+if [ ! -f "$RESOURCES_DIR/autocomplete.py" ]; then
+    echo "   ❌ autocomplete.py отсутствует - нужно копирование"
+    NEED_PACKAGING=true
+fi
+
+if [ ! -f "$RESOURCES_DIR/minillm_export.pt" ]; then
+    echo "   ❌ minillm_export.pt отсутствует - нужно копирование"
+    NEED_PACKAGING=true
+fi
+
+if [ "$NEED_PACKAGING" = false ]; then
+    echo "✅ ВСЕ УЖЕ ГОТОВО! Упаковка не требуется."
+    echo "🎯 Приложение содержит:"
+    echo "   ✅ Python.framework"
+    echo "   ✅ venv с установленными зависимостями"
+    echo "   ✅ Все необходимые файлы"
+    echo "✅ Упаковка завершена (ничего не изменено)!"
+    exit 0
+else
+    echo "🚀 НАЧИНАЕМ УПАКОВКУ..."
+fi
 
 # Проверяем наличие Python.framework
 echo "🐍 ПРОВЕРЯЕМ PYTHON.FRAMEWORK..."
