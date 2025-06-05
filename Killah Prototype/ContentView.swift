@@ -202,9 +202,9 @@ struct InlineSuggestingTextView: NSViewRepresentable {
                                 print("Coordinator.debouncer.tokenCallback: Received token '\(token)' for prompt '\(currentPromptForLLM)'")
                                 textView?.appendGhostTextToken(token)
                             }
-                        } onComplete: { [weak self, weak textView] result in
+                        } onComplete: { [weak textView] result in
                             DispatchQueue.main.async {
-                                guard let self = self, let textView = textView else { return }
+                                guard let textView = textView else { return }
                                 switch result {
                                 case .success(let fullSuggestion):
                                     print("Coordinator.debouncer.onComplete: Success. Full suggestion: '\(fullSuggestion)' for prompt '\(currentPromptForLLM)'")
@@ -321,7 +321,7 @@ extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
         guard let textView = managedTextView, textView.ghostText() != nil else { return }
         isProcessingAcceptOrDismiss = true
         
-        let acceptedText = textView.ghostText() ?? ""
+        _ = textView.ghostText() ?? ""
         textView.acceptGhostText()
         llmEngine.abortCurrentSuggestion()
         parent.debouncer.cancel()
@@ -571,7 +571,7 @@ class CustomInlineNSTextView: NSTextView {
     }
     
     func consumeGhostText(length: Int) {
-        guard let ts = self.textStorage, var ghostRange = currentGhostTextRange, length > 0 else { return }
+        guard let ts = self.textStorage, let ghostRange = currentGhostTextRange, length > 0 else { return }
 
         if length <= ghostRange.length {
             ts.beginEditing()

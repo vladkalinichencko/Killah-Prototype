@@ -19,6 +19,9 @@ echo "Время: $(date)"
 echo "🔧 Отладочная информация:"
 echo "   PWD: $(pwd)"
 echo "   BUILT_PRODUCTS_DIR: ${BUILT_PRODUCTS_DIR:-'НЕ УСТАНОВЛЕНА'}"
+echo "   PRODUCT_NAME: ${PRODUCT_NAME:-'НЕ УСТАНОВЛЕНА'}"
+echo "   SRCROOT: ${SRCROOT:-'НЕ УСТАНОВЛЕНА'}"
+echo "   TARGET_NAME: ${TARGET_NAME:-'НЕ УСТАНОВЛЕНА'}"
 echo "   PROJECT_DIR will be: $(cd "$(dirname "$0")/.." && pwd)"
 
 # ===================================================================
@@ -26,10 +29,9 @@ echo "   PROJECT_DIR will be: $(cd "$(dirname "$0")/.." && pwd)"
 # ===================================================================
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Killah Prototype.app"
-PYTHON_VERSION="3.12"
+APP_NAME="${PRODUCT_NAME:-Killah Prototype}.app"
+PYTHON_VERSION="3.12"  # По умолчанию, но будет автоопределена позже
 VENV_NAME="venv"
-
 # URL для скачивания предварительно собранного Python.framework
 PYTHON_FRAMEWORK_URL="https://github.com/python/cpython-bin-deps/releases/download/20231002/cpython-3.12.0%2B20231002-x86_64-apple-darwin-install_only.tar.gz"
 PYTHON_FRAMEWORK_LOCAL="/Library/Frameworks/Python.framework"
@@ -113,6 +115,16 @@ get_python_framework() {
 
 get_python_framework
 
+# Автоопределение версии Python
+echo "📋 Определяем версию Python..."
+ACTUAL_PYTHON_VERSION=$(ls "$FRAMEWORKS_DIR/Python.framework/Versions/" | grep -E "^[0-9]+\.[0-9]+$" | head -1)
+if [ -n "$ACTUAL_PYTHON_VERSION" ]; then
+  PYTHON_VERSION="$ACTUAL_PYTHON_VERSION"
+  echo "✅ Обнаружена версия Python: $PYTHON_VERSION"
+else
+  echo "⚠️  Не удалось автоопределить версию Python, используем: $PYTHON_VERSION"
+fi
+
 # ===================================================================
 # СОЗДАНИЕ ВИРТУАЛЬНОГО ОКРУЖЕНИЯ
 # ===================================================================
@@ -122,6 +134,7 @@ PYTHON_BIN="$FRAMEWORKS_DIR/Python.framework/Versions/$PYTHON_VERSION/bin/python
 
 if [ ! -f "$PYTHON_BIN" ]; then
   echo "❌ Python binary не найден: $PYTHON_BIN"
+  echo "💡 Доступные версии: $(ls "$FRAMEWORKS_DIR/Python.framework/Versions/" || echo "нет")"
   exit 1
 fi
 
@@ -155,15 +168,18 @@ echo "✅ Python файлы скопированы"
 
 echo "📋 Исправляем пути библиотек..."
 PYBIN="$VENV_DST/bin/python3"
+
+# Исправляем пути библиотек (подавляем предупреждения о подписи)
 install_name_tool -change \
   "/Library/Frameworks/Python.framework/Versions/$PYTHON_VERSION/lib/libpython${PYTHON_VERSION}.dylib" \
   "@executable_path/../../../Frameworks/Python.framework/Versions/$PYTHON_VERSION/lib/libpython${PYTHON_VERSION}.dylib" \
-  "$PYBIN"
+  "$PYBIN" 2>/dev/null || true
 echo "✅ Пути исправлены"
 
 echo "📋 Переподписываем python3..."
-codesign --force --sign - "$PYBIN"
+codesign --force --sign - "$PYBIN" 2>/dev/null || true
 echo "✅ Переподписано"
+
 
 # ===================================================================
 # ФИНАЛИЗАЦИЯ

@@ -146,15 +146,18 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/package_app.sh",
+				"$(SRCROOT)/Resources/requirements.txt",
 			);
 			name = "Package Python";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Python.framework",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Resources/venv",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "set -e\nbash \"${SRCROOT}/Scripts/package_app.sh\"\n";
+			shellScript = "set -e\necho \"🚀 Starting Package Python script\"\necho \"BUILT_PRODUCTS_DIR: $BUILT_PRODUCTS_DIR\"\necho \"PRODUCT_NAME: $PRODUCT_NAME\"\nbash \"${SRCROOT}/Scripts/package_app.sh\"\necho \"✅ Package Python script completed\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -302,7 +305,7 @@
 				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				"INFOPLIST_FILE[sdk=*]" = Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -345,7 +348,8 @@
 				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				"INFOPLIST_FILE[sdk=*]" = Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
