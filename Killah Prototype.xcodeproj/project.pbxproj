@@ -11,7 +11,6 @@
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */; };
-		408B41612DCBA8A800318056 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 408B41602DCBA8A800318056 /* Info.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -97,7 +96,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1630;
-				LastUpgradeCheck = 1630;
+				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					40C7315E2DC63936004D753D = {
 						CreatedOnToolsVersion = 16.3;
@@ -128,7 +127,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				408B41612DCBA8A800318056 /* Info.plist in Resources */,
 				408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,
 				408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */,
@@ -141,7 +139,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		400286852DC77D5A002A3D68 /* Package Python */ = {
 			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 8;
+			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
@@ -155,8 +153,8 @@
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "bash \"${SRCROOT}/Scripts/package_app.sh\"\n";
+			shellPath = /bin/bash;
+			shellScript = "set -e\nbash \"${SRCROOT}/Scripts/package_app.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -205,6 +203,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -268,6 +267,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -298,6 +298,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Killah Prototype/Killah_Prototype.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -340,6 +341,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Killah Prototype/Killah_Prototype.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;

@@ -1,8 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Функция для обработки ошибок
+error_handler() {
+    echo "❌ ОШИБКА на строке $1: команда '$2' завершилась с кодом $3"
+    echo "📍 Отладочная информация на момент ошибки:"
+    echo "   PWD: $(pwd)"
+    echo "   APP_PATH: ${APP_PATH:-'НЕ УСТАНОВЛЕНА'}"
+    echo "   BUILD_DIR: ${BUILD_DIR:-'НЕ УСТАНОВЛЕНА'}"
+    exit $3
+}
+
+# Подключаем обработчик ошибок
+trap 'error_handler ${LINENO} "$BASH_COMMAND" $?' ERR
+
 echo "🚀 УПАКОВКА ПРИЛОЖЕНИЯ"
 echo "Время: $(date)"
+echo "🔧 Отладочная информация:"
+echo "   PWD: $(pwd)"
+echo "   BUILT_PRODUCTS_DIR: ${BUILT_PRODUCTS_DIR:-'НЕ УСТАНОВЛЕНА'}"
+echo "   PROJECT_DIR will be: $(cd "$(dirname "$0")/.." && pwd)"
 
 # ===================================================================
 # КОНФИГУРАЦИЯ - единственное место где задаются все пути и настройки
@@ -17,8 +34,14 @@ VENV_NAME="venv"
 PYTHON_FRAMEWORK_URL="https://github.com/python/cpython-bin-deps/releases/download/20231002/cpython-3.12.0%2B20231002-x86_64-apple-darwin-install_only.tar.gz"
 PYTHON_FRAMEWORK_LOCAL="/Library/Frameworks/Python.framework"
 
-# Пути сборки из Xcode
-BUILD_DIR="$BUILT_PRODUCTS_DIR"
+# Пути сборки из Xcode (с резервными значениями для отладки)
+if [ -z "${BUILT_PRODUCTS_DIR:-}" ]; then
+  echo "⚠️  BUILT_PRODUCTS_DIR не установлена, используем значение по умолчанию"
+  BUILD_DIR="$PROJECT_DIR/build/Debug"
+else
+  BUILD_DIR="$BUILT_PRODUCTS_DIR"
+fi
+
 APP_PATH="$BUILD_DIR/$APP_NAME"
 FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
 RESOURCES_DIR="$APP_PATH/Contents/Resources"
