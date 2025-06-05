@@ -59,6 +59,30 @@ pip install -r "$PROJECT_DIR/Resources/requirements.txt" || {
 }
 deactivate
 
+# Copy Python resources (scripts and models) to app bundle
+echo "→ Копируем Python ресурсы (скрипты и модели)"
+cp "$PROJECT_DIR/Resources/autocomplete.py" "$RESOURCES_DIR/" || {
+  echo "❌ Не удалось скопировать autocomplete.py"
+  exit 1
+}
+
+# Copy model file if it exists
+if [ -f "$PROJECT_DIR/Resources/minillm_export.pt" ]; then
+  cp "$PROJECT_DIR/Resources/minillm_export.pt" "$RESOURCES_DIR/" || {
+    echo "❌ Не удалось скопировать minillm_export.pt"
+    exit 1
+  }
+  echo "✅ Скопирован minillm_export.pt"
+else
+  echo "⚠️ minillm_export.pt не найден в Resources, пропускаем"
+fi
+
+# Copy requirements.txt for reference
+cp "$PROJECT_DIR/Resources/requirements.txt" "$RESOURCES_DIR/" || {
+  echo "❌ Не удалось скопировать requirements.txt"
+  exit 1
+}
+
 # Патчим пути
 echo "→ Патчим пути в python3"
 PYBIN="$VENV_DST/bin/python3"

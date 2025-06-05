@@ -91,23 +91,37 @@ class LLMEngine: ObservableObject {
         let process = Process()
         task = process
 
-        guard let venvPythonPath = Bundle.main.path(forResource: "venv/bin/python3", ofType: nil) else {
-            print("❌ Python binary not found in app bundle at 'venv/bin/python3'")
+        // Try to find Python binary in the expected location within Resources
+        guard let venvPythonPath = findResourcePath("venv/bin/python3") else {
             updateEngineState(.error("Python binary not found"))
             return
         }
         print("🐍 Python interpreter path: \(venvPythonPath)")
 
-        guard let scriptPath = Bundle.main.path(forResource: "autocomplete", ofType: "py") else {
-             print("❌ Python script 'autocomplete.py' not found in app bundle")
+        // Try to find the Python script in Resources folder first, then fall back to main bundle
+        guard let scriptPath = findResourcePath("autocomplete", ofType: "py") else {
              updateEngineState(.error("autocomplete.py not found"))
              return
         }
         print("📜 Python script path: \(scriptPath)")
             
+        // Check for model file in Resources folder
         let modelPath = (scriptPath as NSString).deletingLastPathComponent + "/minillm_export.pt"
         if !FileManager.default.fileExists(atPath: modelPath) {
-            print("⚠️ Model file 'minillm_export.pt' not found at expected path: \(modelPath). Script might fail.")
+            // Try alternative path in Resources
+            let altModelPath = Bundle.main.path(forResource: "Resources/minillm_export", ofType: "pt") ?? 
+                               Bundle.main.path(forResource: "minillm_export", ofType: "pt")
+            if let altPath = altModelPath, FileManager.default.fileExists(atPath: altPath) {
+                print("📊 Model file found at: \(altPath)")
+            } else {
+                print("⚠️ Model file 'minillm_export.pt' not found. Tried:")
+                print("   - \(modelPath)")
+                print("   - Resources/minillm_export.pt")
+                print("   - minillm_export.pt")
+                print("   Script might fail.")
+            }
+        } else {
+            print("📊 Model file found at: \(modelPath)")
         }
 
         process.executableURL = URL(fileURLWithPath: venvPythonPath)
@@ -146,6 +160,40 @@ class LLMEngine: ObservableObject {
             return true
         }
         return false
+    }
+
+    // Helper method to find resources with better error reporting
+    private func findResourcePath(_ resourceName: String, ofType type: String? = nil) -> String? {
+        // Try different possible locations
+        let possiblePaths = [
+            "Resources/\(resourceName)" + (type != nil ? ".\(type!)" : ""),
+            resourceName + (type != nil ? ".\(type!)" : "")
+        ]
+        
+        for path in possiblePaths {
+            if let foundPath = Bundle.main.path(forResource: path, ofType: nil) {
+                print("✅ Found resource at: \(foundPath)")
+                return foundPath
+            }
+        }
+        
+        // Debug info
+        print("❌ Resource '\(resourceName)' not found. Searched paths:")
+        for path in possiblePaths {
+            print("   - \(path)")
+        }
+        
+        if let resourceURL = Bundle.main.resourceURL {
+            print("📁 Bundle Resources directory: \(resourceURL.path)")
+            do {
+                let contents = try FileManager.default.contentsOfDirectory(atPath: resourceURL.path)
+                print("📄 Available resources: \(contents.prefix(10))") // Show first 10 items
+            } catch {
+                print("❌ Cannot list bundle resources: \(error)")
+            }
+        }
+        
+        return nil
     }
 
     // New generateSuggestion with callbacks
