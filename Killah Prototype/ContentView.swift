@@ -850,7 +850,7 @@ class CustomInlineNSTextView: NSTextView {
     }
 
     // Helper method to get character index for mouse position
-    private func characterIndexForInsertion(at point: NSPoint) -> Int {
+    internal override func characterIndexForInsertion(at point: NSPoint) -> Int {
         guard let layoutManager = self.layoutManager,
               let textContainer = self.textContainer else { return 0 }
         
