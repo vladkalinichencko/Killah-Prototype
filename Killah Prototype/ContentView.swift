@@ -18,40 +18,40 @@ protocol LLMInteractionDelegate: AnyObject {
     func dismissSuggestion()
 }
 
+// Protocol for text formatting communication
+protocol TextFormattingDelegate: AnyObject {
+    func toggleBold()
+    func toggleItalic() 
+    func toggleUnderline()
+}
+
 struct ContentView: View {
     @State private var text: String = ""
     @StateObject private var llmEngine = LLMEngine()
     @State private var debouncer = Debouncer(delay: 0.5) // Ensure debouncer is a @State property
+    @State private var textFormattingDelegate: TextFormattingDelegate?
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Inline Ghost Text Demo")
-                .font(.title2)
-                .padding(.bottom, 5)
-            
-            Text("Type to get suggestions. Tab to accept, Esc to dismiss.")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .padding(.bottom, 10)
+        ZStack(alignment: .top) { // Use ZStack to overlay toolbar
+            VStack(alignment: .leading, spacing: 0) {
+                InlineSuggestingTextView(
+                    text: $text,
+                    llmEngine: llmEngine,
+                    debouncer: $debouncer,
+                    formattingDelegate: $textFormattingDelegate
+                )
+                .frame(minHeight: 150, idealHeight: 300, maxHeight: .infinity)
+                .padding(.top, 80) // Увеличили отступ под увеличенный тулбар
+            }
+            .padding() // Keep overall padding for the VStack
+            .background(Color(NSColor.windowBackgroundColor))
+            .edgesIgnoringSafeArea(.top)
 
-            InlineSuggestingTextView(
-                text: $text, // Pass the text binding
-                llmEngine: llmEngine, // Pass the llmEngine instance
-                debouncer: $debouncer // Pass the debouncer binding
-            )
-            .frame(minHeight: 150, idealHeight: 300, maxHeight: .infinity)
-            .border(Color.gray.opacity(0.5), width: 1)
-            
-            Spacer()
-            
-            Text("Current committed text:")
-                .font(.caption)
-            Text(text.isEmpty ? "<empty>" : text)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(height: 50, alignment: .topLeading)
+            // Floating Toolbar
+            FloatingToolbar(formattingDelegate: textFormattingDelegate)
+                .padding(.top, 15) // Position the toolbar from the top
+
         }
-        .padding()
         .onAppear {
             print("ContentView appeared. Starting LLM Engine.")
             llmEngine.startEngine()
@@ -63,11 +63,100 @@ struct ContentView: View {
     }
 }
 
+struct FloatingToolbar: View {
+    weak var formattingDelegate: TextFormattingDelegate?
+    
+    var body: some View {
+        HStack(spacing: 20) { // Увеличили spacing между кнопками
+            Button(action: { 
+                formattingDelegate?.toggleBold()
+            }) {
+                Image(systemName: "bold")
+                    .font(.system(size: 16, weight: .medium)) // Увеличили размер иконок
+                    .foregroundColor(.primary)
+            }
+            .buttonStyle(ToolbarButtonStyle())
+
+            Button(action: { 
+                formattingDelegate?.toggleItalic()
+            }) {
+                Image(systemName: "italic")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+            .buttonStyle(ToolbarButtonStyle())
+
+            Button(action: { 
+                formattingDelegate?.toggleUnderline()
+            }) {
+                Image(systemName: "underline")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+            .buttonStyle(ToolbarButtonStyle())
+            
+            Spacer() // Pushes controls to one side if needed, or add more controls
+            
+            Button(action: { /* TODO: Settings action */ }) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+            .buttonStyle(ToolbarButtonStyle())
+        }
+        .padding(.horizontal, 20) // Увеличили горизонтальные отступы
+        .padding(.vertical, 12) // Увеличили вертикальные отступы
+        .background(
+            VisualEffectView(material: .hudWindow, blendingMode: .withinWindow)
+        )
+        .cornerRadius(16) // Увеличили радиус скругления
+        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4) // Улучшили тень
+        .frame(minWidth: 280) // Увеличили минимальную ширину
+    }
+}
+
+// --- Custom Button Style for Toolbar ---
+struct ToolbarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(configuration.isPressed ? 
+                          Color.primary.opacity(0.15) : 
+                          Color.clear)
+            )
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+// Helper for NSVisualEffectView in SwiftUI
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var blendingMode: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active // Ensure the effect is active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
+}
+
 // --- NSViewRepresentable ---
 struct InlineSuggestingTextView: NSViewRepresentable {
     @Binding var text: String
     @ObservedObject var llmEngine: LLMEngine
     @Binding var debouncer: Debouncer
+    @Binding var formattingDelegate: TextFormattingDelegate?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self, llmEngine: llmEngine)
@@ -84,7 +173,10 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         textView.allowsUndo = true
         textView.textContainerInset = CGSize(width: 10, height: 10)
         
-        // Pass coordinator to textView for direct calls (e.g., for LLM interaction via keyDown)
+        // Make the TextView background transparent to blend with the window
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false // Ensure it doesn't draw its own background
+
         textView.llmInteractionDelegate = context.coordinator
         context.coordinator.managedTextView = textView // Give coordinator a reference
 
@@ -99,6 +191,14 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .noBorder
         scrollView.documentView = textView
+        
+        // Make ScrollView background transparent
+        scrollView.drawsBackground = false
+        
+        // Set formatting delegate
+        DispatchQueue.main.async {
+            context.coordinator.parent.formattingDelegate = context.coordinator
+        }
 
         return scrollView
     }
@@ -311,6 +411,80 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             // Can be used to clear suggestion if user moves cursor away, etc.
             // For now, let's keep it simple.
+        }
+    }
+}
+
+extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
+    func toggleBold() {
+        guard let textView = managedTextView else { return }
+        
+        // Получаем текущий выделенный диапазон
+        let selectedRange = textView.selectedRange
+        
+        // Если ничего не выделено, форматируем следующий набираемый текст
+        if selectedRange.length == 0 {
+            // Переключаем состояние для будущего ввода
+            if let font = textView.typingAttributes[.font] as? NSFont {
+                let newFont = font.fontDescriptor.symbolicTraits.contains(.bold) ? 
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.bold), size: font.pointSize)
+                textView.typingAttributes[.font] = newFont ?? font
+            }
+            return
+        }
+        
+        // Применяем форматирование к выделенному тексту
+        textView.textStorage?.enumerateAttribute(.font, in: selectedRange) { value, range, _ in
+            if let font = value as? NSFont {
+                let newFont = font.fontDescriptor.symbolicTraits.contains(.bold) ? 
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.bold), size: font.pointSize)
+                textView.textStorage?.addAttribute(.font, value: newFont ?? font, range: range)
+            }
+        }
+    }
+    
+    func toggleItalic() {
+        guard let textView = managedTextView else { return }
+        
+        let selectedRange = textView.selectedRange
+        
+        if selectedRange.length == 0 {
+            if let font = textView.typingAttributes[.font] as? NSFont {
+                let newFont = font.fontDescriptor.symbolicTraits.contains(.italic) ? 
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: font.pointSize)
+                textView.typingAttributes[.font] = newFont ?? font
+            }
+            return
+        }
+        
+        textView.textStorage?.enumerateAttribute(.font, in: selectedRange) { value, range, _ in
+            if let font = value as? NSFont {
+                let newFont = font.fontDescriptor.symbolicTraits.contains(.italic) ? 
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
+                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: font.pointSize)
+                textView.textStorage?.addAttribute(.font, value: newFont ?? font, range: range)
+            }
+        }
+    }
+    
+    func toggleUnderline() {
+        guard let textView = managedTextView else { return }
+        
+        let selectedRange = textView.selectedRange
+        
+        if selectedRange.length == 0 {
+            let currentUnderline = textView.typingAttributes[.underlineStyle] as? Int ?? 0
+            textView.typingAttributes[.underlineStyle] = currentUnderline == 0 ? NSUnderlineStyle.single.rawValue : 0
+            return
+        }
+        
+        textView.textStorage?.enumerateAttribute(.underlineStyle, in: selectedRange) { value, range, _ in
+            let currentValue = value as? Int ?? 0
+            let newValue = currentValue == 0 ? NSUnderlineStyle.single.rawValue : 0
+            textView.textStorage?.addAttribute(.underlineStyle, value: newValue, range: range)
         }
     }
 }
@@ -606,18 +780,82 @@ class CustomInlineNSTextView: NSTextView {
     
     // Prevent direct editing/selection of ghost text (basic)
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        // Delegate most of this logic to the Coordinator's implementation
-        // which is called via the NSTextViewDelegate protocol.
-        // This NSTextView method is called before the delegate method.
-        // We can do preliminary checks here if needed.
+        // Запрещаем любые изменения внутри ghost text, кроме Tab/Escape
+        if let ghostRange = currentGhostTextRange,
+           affectedCharRange.location >= ghostRange.location &&
+           affectedCharRange.location < NSMaxRange(ghostRange) {
+            return false // Блокируем редактирование ghost text
+        }
         
-        // If the coordinator handles it, respect its decision.
+        // Если изменение влияет на область до ghost text, очищаем ghost text
+        if let ghostRange = currentGhostTextRange,
+           NSMaxRange(affectedCharRange) > ghostRange.location {
+            DispatchQueue.main.async { [weak self] in
+                self?.clearGhostText()
+                self?.llmInteractionDelegate?.dismissSuggestion()
+            }
+        }
+        
+        // Delegate most of this logic to the Coordinator's implementation
         if let coordinatorDecision = self.delegate?.textView?(self, shouldChangeTextIn: affectedCharRange, replacementString: replacementString) {
             return coordinatorDecision
         }
         
-        // Fallback to super if delegate doesn't implement or doesn't care.
         return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+    }
+    
+    // Override selection methods to prevent ghost text selection
+    override func setSelectedRange(_ charRange: NSRange) {
+        // Если пытаемся выделить ghost text, корректируем диапазон
+        if let ghostRange = currentGhostTextRange {
+            let adjustedRange = adjustSelectionRange(charRange, ghostRange: ghostRange)
+            super.setSelectedRange(adjustedRange)
+        } else {
+            super.setSelectedRange(charRange)
+        }
+    }
+    
+    // Helper method to adjust selection to avoid ghost text
+    private func adjustSelectionRange(_ range: NSRange, ghostRange: NSRange) -> NSRange {
+        let rangeEnd = NSMaxRange(range)
+        let ghostEnd = NSMaxRange(ghostRange)
+        
+        // Если выделение начинается внутри ghost text, перемещаем в начало
+        if range.location >= ghostRange.location && range.location < ghostEnd {
+            return NSRange(location: ghostRange.location, length: 0)
+        }
+        
+        // Если выделение пересекается с ghost text, обрезаем его
+        if range.location < ghostRange.location && rangeEnd > ghostRange.location {
+            return NSRange(location: range.location, length: ghostRange.location - range.location)
+        }
+        
+        return range
+    }
+    
+    // Override mouse events to clear ghost text when clicking elsewhere
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let charIndex = characterIndexForInsertion(at: point)
+        
+        // Если кликнули не в ghost text область, очищаем ghost text
+        if hasGhostText(), let ghostRange = currentGhostTextRange {
+            if charIndex < ghostRange.location || charIndex >= NSMaxRange(ghostRange) {
+                clearGhostText()
+                llmInteractionDelegate?.dismissSuggestion()
+            }
+        }
+        
+        super.mouseDown(with: event)
+    }
+
+    // Helper method to get character index for mouse position
+    private func characterIndexForInsertion(at point: NSPoint) -> Int {
+        guard let layoutManager = self.layoutManager,
+              let textContainer = self.textContainer else { return 0 }
+        
+        let glyphIndex = layoutManager.glyphIndex(for: point, in: textContainer, fractionOfDistanceThroughGlyph: nil)
+        return layoutManager.characterIndexForGlyph(at: glyphIndex)
     }
 }
 
