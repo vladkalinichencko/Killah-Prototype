@@ -247,7 +247,8 @@ Documents are displayed in chronological order by modification time (most recent
   * Bold, italics, underline, strikethrough.
   * Numbered and bulleted lists.
   * Text alignment.
-  * Text highlighting and color options.
+  * Text highlighting.
+  * Font selection and size adjustment.
   * *Note:* Formatting is applied to an attributed string in Swift.
 * **Keyboard Shortcuts:** Full support for standard macOS text editing shortcuts.
 
