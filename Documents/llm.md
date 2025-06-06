@@ -18,67 +18,90 @@ All capabilities are built upon this base using a LoRA-centric approach, startin
 
 ### 1.3. Architecture Principles
 
-The architecture of "lil Pushkin" is built around a few key principles that make it different from standard language models. 
+The architecture of "lil Pushkin" is built around **LoRA Composition** - a modular approach where independent LoRA adapters can be dynamically combined to create different capabilities. This is fundamentally different from traditional fine-tuning approaches.
 
 We start with a **Clean Base Model** using Google Gemma 3 4B that hasn't undergone extensive RLHF (Reinforcement Learning from Human Feedback). Most commercial models are heavily fine-tuned to be "safe" and "helpful," which often makes them sound generic and corporate. By starting with a less processed model, we maintain the raw stylistic capabilities that make genuine personalization possible.
 
-Our **Foundational Persona LoRA** is the first and most important adaptation layer. This LoRA is trained directly on the base model to learn stylistic adaptation using the PersonaPlugs methodology. Think of it as teaching the model the concept of "having a writing style" before we teach it any specific tasks.
+Our **Modular LoRA Architecture** consists of three independent, composable adapters:
 
-**Audio-Integrated Persona LoRA** takes this foundation and adds multimodal capabilities. Instead of treating audio as an afterthought, we integrate voice processing directly into the persona layer. This means the model learns to associate audio patterns with writing styles from the ground up.
+**Persona LoRA** is trained directly on the base model to learn stylistic adaptation using the PersonaPlugs methodology. This adapter focuses purely on capturing and reproducing writing style patterns without any task-specific behavior.
 
-**Task-Specific LoRA Specialization** comes last. We clone the audio-persona LoRA and fine-tune copies for specific tasks like continuation, rephrasing, or story generation. This ensures every task inherently reflects the user's writing style and voice characteristics.
+**Task-Specific LoRAs** are trained independently on the base model for specific writing tasks (continuation, rephrasing, summarization). Each task LoRA learns its specific capability without style considerations - the style comes from the Persona LoRA when they're composed.
 
-Finally, **DPO Refinement** polishes each task-specific LoRA using Direct Preference Optimization with our custom reward model. This step teaches the model to prefer high-quality outputs while maintaining personalization.
+**Audio LoRA** handles multimodal input processing, converting audio embeddings into text space and managing voice commands. It's trained independently to handle audio-to-text projection and command recognition.
+
+**Dynamic Composition at Runtime** follows a consistent pattern where personalization and audio capabilities are always available in interactive scenarios:
+
+- **Pure autocomplete only:** `Base + Task` (minimal composition for maximum speed)
+- **Text writing/rewriting:** `Base + Persona + Audio + Task` (personalized style with voice capability)
+- **Voice dictation:** `Base + Persona + Audio + Task` (full multimodal with personalization)
+- **Interactive editing:** `Base + Persona + Audio + Task` (personalized assistance with voice feedback)
+
+This architecture ensures that **Persona LoRA (personalization) and Audio LoRA are the default for all meaningful user interactions**, providing consistent personalized experience and voice integration. Only pure autocomplete operates without them for optimal typing performance.
+
+Finally, **DPO Refinement** can be applied to individual LoRA adapters or their compositions using Direct Preference Optimization with our custom reward model. This approach maintains the modularity while improving quality.
 
 ### 1.4. Implementation Timeline
 
 **Duration:** Adjusted for rapid development (target ~2-3 weeks intensive work)
 
-#### Week 1: Foundation & Core Persona LoRA
+#### Week 1: Parallel Independent LoRA Training
 
-The first week focuses on establishing the foundational persona capabilities. We begin with environment setup and acquiring the Gemma 3 4B base model, spending the first two days on testing and validation to ensure everything works correctly.
+The first week focuses on training three independent LoRA adapters in parallel, since they don't depend on each other in the new modular architecture.
 
-Days 3-4 are dedicated to preparing our author corpora. We'll focus on high-quality, smaller datasets from sources like Project Gutenberg, aiming for tens of thousands of representative examples that showcase diverse writing styles in both English and Russian. Quality and stylistic diversity matter more than raw quantity at this stage.
+**Persona LoRA Training (Days 1-3):**
+We begin with environment setup and acquiring the Gemma 3 4B base model. Days 1-2 focus on preparing high-quality author corpora from Project Gutenberg and other sources, ensuring diverse writing styles in English and Russian. Day 3 involves training the Persona LoRA using rank 64 and alpha 128 parameters.
 
-The remainder of week 1 involves training our Foundational Persona LoRA using rank 64 and alpha 128 parameters on these diverse author styles. This creates the foundation upon which all subsequent capabilities will be built.
+**Task-Specific LoRA Training (Days 2-5):**
+Starting Day 2, we prepare task-specific datasets (WikiText-103 for continuation, OpenAssistant for rephrasing) and train separate LoRAs for each task directly on the base model. These training sessions can run in parallel since they're independent.
 
-**Target Outcome:** A functional `Foundational_Persona_LoRA` that demonstrates basic style adaptation capabilities.
-**GPU Requirements:** Approximately 15-30 A100 GPU hours, assuming focused datasets and efficient training.
+**Audio LoRA Training (Days 4-6):**
+Audio processing setup begins Day 4, preparing multimodal datasets from LibriSpeech, Common Voice, and Russian audio corpora. The Audio LoRA trains independently on the base model to handle audio-to-text projection and command recognition.
 
-#### Week 1-2: Audio Integration & Task Specialization (Parallel/Iterative)
+**Target Outcomes:** Three independent LoRAs - `Persona_LoRA`, `Task_Continue_LoRA`, `Task_Rephrase_LoRA`, and `Audio_LoRA`
+**GPU Requirements:** 60-90 A100 GPU hours total (can run in parallel on multiple GPUs)
 
-Audio integration begins in parallel with the persona LoRA training, starting with setting up the audio processing stack during days 1-2. We prepare multimodal datasets by selecting high-quality English and Russian subsets from LibriSpeech, Common Voice, Open STT, and Russian Scripted Monologue datasets.
+#### Week 2: Composition Testing & DPO Refinement
 
-By days 4-5, we integrate audio capabilities into our Persona LoRA, creating the `Audio_Persona_LoRA` that can handle both text and voice input while maintaining persona conditioning.
+Week 2 focuses on testing LoRA compositions and refining them with DPO.
 
-**Target Outcome:** A multimodal LoRA that handles both text and audio input with persona conditioning intact.
-**GPU Requirements:** An additional 20-40 A100 GPU hours for audio integration.
+**Composition Validation (Days 1-2):**
+We test different combinations of LoRAs to validate that they compose correctly:
 
-The latter part of week 1 and early week 2 involves cloning the `Audio_Persona_LoRA` for task specialization. We focus on one or two priority tasks like continuation and rephrasing, using smaller, task-specific datasets from WikiText-103 and OpenAssistant/Dolly 15k subsets.
+- `Base + Persona + Task_Continue` for styled text continuation
+- `Base + Persona + Audio` for voice-aware personalized responses  
+- `Base + Audio + Task_Continue` for voice-commanded writing
+- `Base + Persona + Task_Continue + Audio` for full multimodal capability
 
-**Target Outcome:** Initial versions of specialized LoRAs (e.g., `LoRA_Continue_Specialized`, `LoRA_Rephrase_Specialized`).
-**GPU Requirements:** 15-25 hours per LoRA, totaling 30-50 hours for two specialized versions.
+**WQRM Development (Days 2-4):**
+Implement and validate our Writing Quality Reward Model using edit preference pairs and quality gradient examples.
 
-#### Week 2-3: DPO Refinement & PersonaPlugs Runtime
+**DPO Refinement (Days 4-7):**
+Apply Direct Preference Optimization to key LoRA combinations, focusing on the most important compositions like `Persona + Task` combinations.
 
-Week 2 begins with implementing and validating our Writing Quality Reward Model (WQRM). We can start with a simplified version initially, then use it to generate preference pairs for our specialized LoRAs.
+**Target Outcomes:** Validated LoRA compositions with DPO refinement
+**GPU Requirements:** 30-50 A100 GPU hours for DPO training
 
-The middle of week 2 through early week 3 involves applying Direct Preference Optimization to our specialized LoRAs, refining them based on quality preferences learned by the reward model.
+#### Week 3: PersonaPlugs Runtime & Deployment
 
-**Target Outcome:** DPO-refined versions of our chosen LoRAs that balance quality with personalization.
-**GPU Requirements:** 10-20 hours per LoRA, totaling 20-40 hours for both refinements.
+Week 3 implements the runtime system and prepares for deployment.
 
-Running in parallel during weeks 2-3, we implement the PersonaPlugs runtime personalization system. The final days of week 3 focus on quantization (INT4), ExecuTorch deployment preparation, integration testing, and documentation.
+**PersonaPlugs Runtime (Days 1-4):**
+Implement dynamic LoRA loading and composition system, document indexing for persona vector generation, and real-time LoRA switching based on user context.
 
-**Final Deliverable:** A complete personalized LLM system with 1-2 refined capabilities ready for deployment.
+**Optimization & Deployment (Days 5-7):**
+Quantization (INT4) for deployment efficiency, ExecuTorch preparation, integration testing of all components, and comprehensive documentation.
 
-**Revised Total Estimated A100 GPU Hours:** Approximately 85-160 hours. This is a significant reduction and assumes focused effort, smaller datasets, and potentially fewer training epochs or a narrower initial scope. This range is more aligned with "several days on several A100s" (e.g., 3 days on 2 A100s = 144 GPU hours).
+**Final Deliverable:** Complete modular LLM system with dynamic LoRA composition capabilities
 
-#### Critical Path Dependencies
+**Revised Total Estimated A100 GPU Hours:** Approximately 90-140 hours (can be parallelized across multiple GPUs for faster completion)
 
-* Foundational Persona LoRA → Audio Integration → Task Specialization → DPO.
-* WQRM development is needed before DPO.
-* PersonaPlugs runtime can be developed in parallel.
+#### Critical Path Dependencies (Simplified)
+
+- All LoRA training can happen in parallel (Week 1)
+- WQRM development needed before DPO (Week 2)  
+- PersonaPlugs runtime development can happen in parallel with DPO (Week 2-3)
+- No sequential dependencies between LoRA adapters
 
 ### 1.5. Resource Requirements
 
@@ -120,67 +143,122 @@ Our system handles both text and audio input through a unified approach that alw
 
 Command detection represents a sophisticated capability where the system disambiguates between dictation and commands based on user patterns. This persona-aware disambiguation leverages the `Persona_Audio_LoRA`'s deep understanding of how each user typically interacts with the system, distinguishing between "write this down" versus "delete that paragraph" based on context and personal usage patterns.
 
-### 2.3. LoRA-Centric Training Pipeline and Strategy
+### 2.3. Modular LoRA Training Pipeline and Strategy
 
-The training strategy for "lil Pushkin" follows a staged, LoRA-centric approach. All model adaptations are achieved through Low-Rank Adaptation (LoRA) layers applied to the non-RLHF Google Gemma 3 4B base model. This ensures that every capability is inherently personalized from the ground up.
+The training strategy for "lil Pushkin" follows a **modular, independent LoRA approach**. Instead of sequential training where one LoRA builds upon another, we train separate LoRAs for different capabilities and then **compose them dynamically at runtime**. This eliminates catastrophic forgetting and provides maximum flexibility.
 
-**Core Principle:** The Gemma 3 4B base model weights remain frozen. All fine-tuning occurs within the LoRA layers. LoRA typically involves decomposing weight updates into two smaller matrices, A and B. Matrix A is often initialized with random values (e.g., Kaiming He initialization), and matrix B is initialized to zeros, ensuring the adapter has no effect at the start of training. To optimize LoRA performance, we adopt higher ranks (e.g., $r = 64$), rank stabilization, and a scaling factor $\alpha = 2r$. Intruder dimensions are monitored, and mitigation strategies like freezing the $A$ matrix (after its initial random assignment) or using larger datasets judiciously can be employed if issues arise, though with smaller, curated datasets for LoRAs, this might be less of a concern.
+**Core Principle:** The Gemma 3 4B base model weights remain frozen. All capabilities are achieved through independent LoRA adapters that can be combined in different configurations. Each LoRA is trained directly on the base model, learning its specific capability without interference from other tasks.
+
+**LoRA Composition at Runtime:**
+```python
+# Dynamic LoRA loading and composition
+base_model = AutoModelForCausalLM.from_pretrained("google/gemma-3-4b")
+
+# Standard interactive compositions (Persona + Audio + Task):
+writing_model = PeftModel.from_pretrained(base_model, "persona_lora/")
+writing_model = PeftModel.from_pretrained(writing_model, "audio_lora/")  # Always present
+writing_model = PeftModel.from_pretrained(writing_model, "task_continue_lora/")
+
+voice_model = PeftModel.from_pretrained(base_model, "persona_lora/") 
+voice_model = PeftModel.from_pretrained(voice_model, "audio_lora/")
+voice_model = PeftModel.from_pretrained(voice_model, "task_dictation_lora/")
+
+# Pure autocomplete only (minimal composition for speed):
+autocomplete_model = PeftModel.from_pretrained(base_model, "task_autocomplete_lora/")
+```
+
+**Core Architecture Principle:** In all interactive scenarios, **Persona LoRA and Audio LoRA are always present** to ensure consistent personalization and voice capabilities. Only pure autocomplete operates with minimal composition for optimal typing performance.
 
 **Runtime Personalization with PersonaPlugs:**
-The PersonaPlugs methodology (detailed in Section 2.4) provides dynamic, user-specific conditioning at inference time. User documents are processed to create persona vectors, which are then used to condition the active LoRA (Foundational, Persona-Audio, or Task-Specific DPO-refined LoRAs) to tailor responses to the user's unique style.
+The PersonaPlugs methodology (detailed in Section 2.4) provides dynamic, user-specific conditioning at inference time. User documents are processed to create persona vectors, which are then used to condition whichever LoRA composition is active.
 
 ```mermaid
 graph TB
-    subgraph "Foundation"
-        A[Gemma 3 4B Base Model] --> B[Persona LoRA Training]
-        B --> C[Foundational_Persona_LoRA]
+    subgraph "Base Model"
+        G[Google Gemma 3 4B<br/>Non-RLHF Base]
+        style G fill:#ffebee
     end
     
-    subgraph "Audio Integration"
-        C --> D[Audio_Persona_LoRA]
+    subgraph "Independent LoRA Training"
+        P[Persona LoRA<br/>Style Adaptation]
+        T1[Task LoRA: Continue<br/>Text Continuation]
+        T2[Task LoRA: Rephrase<br/>Text Rephrasing]
+        A[Audio LoRA<br/>Voice Processing]
+        style P fill:#e8f5e8
+        style T1 fill:#e8f4f8
+        style T2 fill:#e8f4f8
+        style A fill:#f8f4e8
     end
     
-    subgraph "Task Specialization"
-        D --> E[LoRA_Continue]
-        D --> F[LoRA_Rephrase]
+    subgraph "Runtime Composition"
+        C1[Text Writing<br/>Base + Persona + Task]
+        C2[Voice Dictation<br/>Base + Persona + Audio]
+        C3[Multimodal<br/>Base + Persona + Task + Audio]
+        style C1 fill:#f0f8ff
+        style C2 fill:#f0f8ff
+        style C3 fill:#f0f8ff
     end
     
-    subgraph "Quality Refinement with DPO"
-        G[Writing Quality Reward Model] --> H[Generate Preference Pairs]
-        E --> H
-        F --> H
-        H --> I[DPO Training]
-        I --> J[Final LoRA_Continue_DPO]
-        I --> K[Final LoRA_Rephrase_DPO]
+    subgraph "Quality Enhancement"
+        W[Writing Quality<br/>Reward Model]
+        D[DPO Refinement<br/>Applied to Compositions]
+        style W fill:#fff3e0
+        style D fill:#fff3e0
     end
     
-    subgraph "Reward Model Training & Testing"
-        L[Expert Edit Data] --> M[Train Reward Model]
-        M --> G
-        N[Quality Metrics] --> G
-        O[Testing Pipeline] --> P[Validation Results]
-        G --> O
-    end
+    G --> P
+    G --> T1
+    G --> T2
+    G --> A
     
-    style A fill:#e1f5fe
-    style C fill:#f3e5f5
-    style D fill:#e8f5e8
-    style J fill:#fff3e0
-    style K fill:#fff3e0
-    style G fill:#ffebee
+    P --> C1
+    T1 --> C1
+    
+    P --> C2
+    A --> C2
+    
+    P --> C3
+    T1 --> C3
+    A --> C3
+    
+    W --> D
+    C1 --> D
+    C2 --> D
+    C3 --> D
 ```
 
 **Pipeline Stages:**
 
-#### 2.3.1. Stage 1: Foundational Persona LoRA Training (Style Adaptation)
+#### 2.3.1. Stage 1: Independent LoRA Training (Parallel Execution)
 
-* **Goal:** Create a LoRA that adapts the base Gemma 3 4B model to a diverse range of writing styles, including both English and Russian.
+**Persona LoRA Training (Pure Style Adaptation)**
 
-* **Data:** High-quality, stylistically diverse author corpora (e.g., selected works from Project Gutenberg – ensuring EN/RU representation, curated collections of distinctive literary texts in both languages). Aim for a focused dataset of tens of thousands of high-quality examples rather than hundreds of thousands. Quality and stylistic diversity are key. Datasets are often available as text files or through platforms like Hugging Face Datasets.
-* **Process:**
-  Our corpus preparation involves processing and cleaning selected English and Russian author corpora to ensure high-quality training data. We then train the `Foundational_Persona_LoRA` using rank 64 and alpha 128 parameters, applying rank stabilization throughout the process while monitoring training closely for effective style adaptation.
-* **Outcome:** `Foundational_Persona_LoRA`.
-* **Estimated GPU Hours:** 15-30 A100 GPU hours (reflecting smaller, high-quality dataset and potentially fewer epochs). This is a rough estimate and requires empirical validation.
+- **Goal:** Create a LoRA that adapts the base Gemma 3 4B model to diverse writing styles, focusing purely on stylistic patterns without task-specific behavior.
+- **Base:** Google Gemma 3 4B (frozen weights)
+- **Data:** High-quality, stylistically diverse author corpora from Project Gutenberg and other sources, ensuring English and Russian representation. Focus on tens of thousands of examples showcasing different writing styles.
+- **Process:** Train using rank 64 and alpha 128 parameters, focusing on style transfer without any task conditioning.
+- **Outcome:** `Persona_LoRA` - a pure style adaptation layer
+- **Estimated GPU Hours:** 20-30 A100 GPU hours
+
+**Task-Specific LoRA Training (Independent Task Learning)**
+
+- **Goal:** Create specialized LoRAs for individual writing tasks, each trained independently on the base model.
+- **Base:** Google Gemma 3 4B (frozen weights) - NO other LoRAs loaded
+- **Data:** Task-specific datasets ensuring EN/RU examples:
+  - **Continue:** WikiText-103 subsets, Project Gutenberg continuations
+  - **Rephrase:** OpenAssistant subsets, Dolly 15k, synthetic rephrasing pairs
+- **Process:** Train each task LoRA independently using rank 64 and alpha 128 parameters. Each LoRA learns pure task capability without style considerations.
+- **Outcome:** Independent task LoRAs (`Task_Continue_LoRA`, `Task_Rephrase_LoRA`)
+- **Estimated GPU Hours:** 20-30 A100 GPU hours per task LoRA
+
+**Audio LoRA Training (Independent Audio Processing)**
+
+- **Goal:** Create an audio processing LoRA that handles voice input and audio-to-text projection independently.
+- **Base:** Google Gemma 3 4B (frozen weights) - NO other LoRAs loaded
+- **Data:** Multimodal audio-text datasets with EN/RU content from LibriSpeech, Common Voice, Open STT, Russian audio corpora
+- **Process:** Train audio processing capabilities using rank 64 and alpha 128 parameters, focusing on audio understanding without style or task considerations.
+- **Outcome:** `Audio_LoRA` - pure audio processing capability
+- **Estimated GPU Hours:** 25-35 A100 GPU hours
 
 #### 2.3.2. Stage 2: Persona-Audio LoRA Training (Audio Integration)
 
@@ -726,6 +804,229 @@ This process provides a quantitative way to ground your evaluation and track pro
 ### 3.4. Real-World Usage Analytics (Summary - keep concise)
 
 * Track feature adoption, user retention, qualitative feedback.
+
+## 4. ОБНОВЛЕННАЯ МОДУЛЬНАЯ АРХИТЕКТУРА LORA
+
+### 4.1. Ключевое изменение в подходе
+
+**Вместо последовательного обучения LoRA адаптеров**, где каждый следующий LoRA тренируется поверх предыдущего, мы используем **независимое обучение** с последующей **динамической композицией**.
+
+### 4.2. Новая схема тренировки
+
+#### Этап 1: Независимое обучение LoRA адаптеров (параллельно)
+
+1. **Persona LoRA** - тренируется на базовой Gemma 3 4B для изучения стилей
+2. **Task LoRA (Continue)** - тренируется на базовой Gemma 3 4B для продолжения текста
+3. **Task LoRA (Rephrase)** - тренируется на базовой Gemma 3 4B для перефразирования
+4. **Audio LoRA** - тренируется на базовой Gemma 3 4B для обработки аудио
+
+#### Этап 2: Композиция во время инференса
+
+```python
+# Пример композиции для разных задач
+base_model = AutoModelForCausalLM.from_pretrained("google/gemma-3-4b")
+
+# Для персонализированного продолжения текста:
+model = PeftModel.from_pretrained(base_model, "persona_lora/")
+model = PeftModel.from_pretrained(model, "task_continue_lora/")
+
+# Для голосовой диктовки с персонализацией:
+model = PeftModel.from_pretrained(base_model, "persona_lora/")
+model = PeftModel.from_pretrained(model, "audio_lora/")
+
+# Полная мультимодальная система:
+model = PeftModel.from_pretrained(base_model, "persona_lora/")
+model = PeftModel.from_pretrained(model, "task_continue_lora/")
+model = PeftModel.from_pretrained(model, "audio_lora/")
+```
+
+### 4.3. Преимущества новой архитектуры
+
+1. **Отсутствие катастрофического забывания** - каждый LoRA сохраняет свои способности
+2. **Параллельное обучение** - все LoRA могут тренироваться одновременно
+3. **Гибкость композиции** - можно динамически включать/выключать способности
+4. **Модульность** - легко добавлять новые способности без переобучения
+5. **Отладка** - проблемы изолированы в конкретных LoRA
+
+### 4.4. Техническая реализация
+
+**Во время обучения:**
+- Каждый LoRA тренируется независимо на базовой модели
+- Никаких зависимостей между LoRA адаптерами
+- Можно использовать разные GPU для разных LoRA
+
+**Во время инференса:**
+- LoRA адаптеры загружаются последовательно
+- Математически их веса просто складываются
+- Можно менять композицию на лету
+
+### 4.5. Обновленная диаграмма архитектуры
+
+```mermaid
+graph TB
+    Base[Google Gemma 3 4B Base] --> P[Persona LoRA]
+    Base --> T1[Task Continue LoRA]
+    Base --> T2[Task Rephrase LoRA]
+    Base --> A[Audio LoRA]
+    
+    P -.-> C1[Writing Mode<br/>Persona + Task]
+    T1 -.-> C1
+    
+    P -.-> C2[Voice Mode<br/>Persona + Audio]
+    A -.-> C2
+    
+    P -.-> C3[Full Mode<br/>All LoRAs]
+    T1 -.-> C3
+    A -.-> C3
+```
+
+Это кардинально меняет нашу стратегию разработки и делает систему гораздо более гибкой!
+
+## 4. Modular LoRA Architecture: Technical Foundation and Advantages
+
+### 4.1. Why Modular LoRA Architecture is Critical
+
+**The Problem with Sequential LoRA Training:**
+Traditional approaches train LoRA adapters sequentially, where each new adapter builds upon the previous one. This creates a fundamental issue known as **catastrophic forgetting** - when a neural network learns new tasks, it tends to "forget" previously learned capabilities as the weights shift to accommodate new patterns.
+
+**Example of Sequential Training Problems:**
+```
+Base Model → Persona LoRA → Audio LoRA → Task LoRA
+```
+In this approach:
+- Training Audio LoRA on top of Persona LoRA can degrade the model's understanding of writing style
+- Adding Task LoRA can interfere with both persona and audio capabilities
+- Each stage risks losing previously acquired skills
+- Testing and debugging becomes extremely difficult as capabilities are intertwined
+
+**Our Solution: Independent Training with Runtime Composition**
+Instead, "lil Pushkin" uses **modular, independent LoRA training** where each adapter is trained separately on the base model and then composed at runtime:
+
+### 4.2. Independent LoRA Training Strategy
+
+#### Stage 1: Parallel Independent Training
+Each LoRA adapter is trained independently on the base Gemma 3 4B model:
+
+1. **Persona LoRA:** `Base Model + Style Dataset` → Pure style adaptation
+2. **Audio LoRA:** `Base Model + Audio-Text Dataset` → Pure multimodal processing  
+3. **Task LoRA (Continue):** `Base Model + Continuation Dataset` → Pure task capability
+4. **Task LoRA (Rephrase):** `Base Model + Rephrase Dataset` → Pure task capability
+
+#### Stage 2: Runtime Composition
+At inference time, we dynamically load and compose the required LoRA adapters:
+
+```python
+# Runtime composition examples
+base_model = AutoModelForCausalLM.from_pretrained("google/gemma-3-4b")
+
+# For personalized text writing (default interactive mode):
+model = PeftModel.from_pretrained(base_model, "persona_lora/")
+model = PeftModel.from_pretrained(model, "audio_lora/")  # Always present for voice feedback
+model = PeftModel.from_pretrained(model, "task_continue_lora/")
+
+# For voice dictation (full multimodal):
+model = PeftModel.from_pretrained(base_model, "persona_lora/")
+model = PeftModel.from_pretrained(model, "audio_lora/")
+model = PeftModel.from_pretrained(model, "task_dictation_lora/")
+
+# For pure autocomplete only (minimal composition):
+model = PeftModel.from_pretrained(base_model, "task_autocomplete_lora/")
+```
+
+### 4.3. Technical Implementation: How LoRA Composition Works
+
+**Mathematical Foundation:**
+LoRA adapters modify the original model weights through low-rank decomposition:
+```
+W_modified = W_original + B × A
+```
+Where B and A are the low-rank matrices learned during LoRA training.
+
+**Runtime Composition:**
+When multiple LoRA adapters are loaded, their modifications are additive:
+```
+W_final = W_original + B₁×A₁ + B₂×A₂ + B₃×A₃
+```
+This allows us to combine capabilities without interference, as each LoRA operates in its own parameter subspace.
+
+### 4.4. Key Advantages of Modular LoRA Architecture
+
+#### 1. **Elimination of Catastrophic Forgetting**
+- Each LoRA maintains its specialized knowledge independently
+- No risk of new training degrading existing capabilities  
+- Stable, predictable behavior across all use cases
+
+#### 2. **Parallel Development and Training**
+- All LoRA adapters can be trained simultaneously on different GPUs
+- Dramatically reduces development time
+- Independent testing and validation of each capability
+
+#### 3. **Dynamic Flexibility**
+- Runtime composition allows for context-aware capability selection
+- Can optimize performance by loading only required adapters
+- Easy to experiment with different capability combinations
+
+#### 4. **Modular Debugging and Quality Control**
+- Issues can be isolated to specific LoRA adapters
+- Independent quality assessment for each capability
+- Easier troubleshooting and improvement cycles
+
+#### 5. **Scalable Architecture**
+- New capabilities can be added without retraining existing adapters
+- Version control for individual capabilities
+- Easy deployment of capability updates
+
+### 4.5. Why Other Approaches Fail: Catastrophic Forgetting Explained
+
+**What is Catastrophic Forgetting?**
+Catastrophic forgetting occurs when neural networks lose previously learned information upon learning new tasks. This happens because:
+
+1. **Weight Interference:** New learning modifies shared weights, disrupting previous patterns
+2. **Gradient Conflicts:** Gradients from new tasks can directly oppose previous learning
+3. **Representation Drift:** Internal representations shift to accommodate new data, losing old associations
+
+**Real-World Impact in Sequential LoRA Training:**
+- A model trained on writing style (Persona LoRA) then trained on audio processing may lose its stylistic consistency
+- Task-specific training can degrade the model's ability to maintain persona characteristics
+- Audio processing capabilities might interfere with text generation quality
+
+**Why Our Modular Approach Prevents This:**
+- Each LoRA is trained on a frozen base model, preserving the original capabilities
+- No weight interference between different capabilities during training
+- Runtime composition maintains all learned behaviors simultaneously
+- Each capability operates in its dedicated parameter space without conflicts
+
+### 4.6. Persona and Audio LoRA as Core Components
+
+**Design Principle:** In "lil Pushkin", **Persona LoRA and Audio LoRA are architectural foundations**, not optional features:
+
+- **Persona LoRA** ensures all outputs match the user's writing style and preferences
+- **Audio LoRA** provides consistent voice interaction capabilities and audio understanding
+- These adapters are present in **all interactive scenarios** except pure autocomplete
+- This creates a consistent, personalized, and multimodal user experience
+
+**Implementation Strategy:**
+```python
+# Default LoRA composition for interactive features
+DEFAULT_LORAS = ["persona_lora", "audio_lora"]
+TASK_LORAS = {
+    "continue": "task_continue_lora",
+    "rephrase": "task_rephrase_lora", 
+    "dictation": "task_dictation_lora",
+    "autocomplete": "task_autocomplete_lora"  # Only task LoRA, no persona/audio
+}
+
+def compose_model_for_task(task_type):
+    loras_to_load = DEFAULT_LORAS.copy()
+    if task_type != "autocomplete":
+        loras_to_load.append(TASK_LORAS[task_type])
+    else:
+        loras_to_load = [TASK_LORAS[task_type]]  # Minimal composition for speed
+    
+    return load_composed_model(loras_to_load)
+```
+
+This architecture ensures that "lil Pushkin" delivers consistent personalization and voice integration across all meaningful user interactions while maintaining optimal performance for high-frequency operations like autocomplete.
 
 ## 5. Min-p Sampling: Novel Decoding Strategy for Creative Writing
 

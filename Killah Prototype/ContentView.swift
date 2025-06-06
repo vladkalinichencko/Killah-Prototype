@@ -7,115 +7,8 @@
 
 import SwiftUI
 import AppKit
-import Combine
-import UniformTypeIdentifiers
 
-// MARK: - Document Management
-class DocumentManager: ObservableObject {
-    @Published var currentDocumentURL: URL?
-    @Published var currentDocumentName: String = "Untitled"
-    @Published var hasUnsavedChanges: Bool = false
-    
-    func newDocument() {
-        currentDocumentURL = nil
-        currentDocumentName = "Untitled"
-        hasUnsavedChanges = false
-    }
-    
-    func openDocument(completion: @escaping (String?) -> Void) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.plainText, .rtf, .text]
-        
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                do {
-                    var content: String
-                    
-                    // Handle RTF files
-                    if url.pathExtension.lowercased() == "rtf" {
-                        let rtfData = try Data(contentsOf: url)
-                        if let attributedString = NSAttributedString(rtf: rtfData, documentAttributes: nil) {
-                            content = attributedString.string
-                        } else {
-                            throw NSError(domain: "RTFError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not parse RTF file"])
-                        }
-                    } else {
-                        // Handle plain text files
-                        content = try String(contentsOf: url, encoding: .utf8)
-                    }
-                    
-                    self.currentDocumentURL = url
-                    self.currentDocumentName = url.deletingPathExtension().lastPathComponent
-                    self.hasUnsavedChanges = false
-                    completion(content)
-                } catch {
-                    print("Error opening document: \(error)")
-                    completion(nil)
-                }
-            } else {
-                completion(nil)
-            }
-        }
-    }
-    
-    func saveDocument(text: String, completion: @escaping (Bool) -> Void) {
-        if let url = currentDocumentURL {
-            saveToURL(url, text: text, completion: completion)
-        } else {
-            saveAsDocument(text: text, completion: completion)
-        }
-    }
-    
-    func saveAsDocument(text: String, completion: @escaping (Bool) -> Void) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText, .rtf]
-        panel.nameFieldStringValue = currentDocumentName
-        
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                self.saveToURL(url, text: text) { success in
-                    if success {
-                        self.currentDocumentURL = url
-                        self.currentDocumentName = url.deletingPathExtension().lastPathComponent
-                    }
-                    completion(success)
-                }
-            } else {
-                completion(false)
-            }
-        }
-    }
-    
-    private func saveToURL(_ url: URL, text: String, completion: @escaping (Bool) -> Void) {
-        do {
-            // Handle RTF files
-            if url.pathExtension.lowercased() == "rtf" {
-                let attributedString = NSAttributedString(string: text)
-                if let rtfData = attributedString.rtf(from: NSRange(location: 0, length: attributedString.length), documentAttributes: [:]) {
-                    try rtfData.write(to: url)
-                } else {
-                    throw NSError(domain: "RTFError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not create RTF data"])
-                }
-            } else {
-                // Handle plain text files
-                try text.write(to: url, atomically: true, encoding: .utf8)
-            }
-            
-            hasUnsavedChanges = false
-            completion(true)
-        } catch {
-            print("Error saving document: \(error)")
-            completion(false)
-        }
-    }
-    
-    func markAsChanged() {
-        hasUnsavedChanges = true
-    }
-}
+// DocumentManager removed: using SwiftUI DocumentGroup and FileDocument
 
 extension NSAttributedString.Key {
     static let isGhostText = NSAttributedString.Key("com.example.isGhostText")
@@ -135,103 +28,42 @@ protocol TextFormattingDelegate: AnyObject {
     func toggleBulletList()
     func toggleNumberedList()
     func setTextAlignment(_ alignment: NSTextAlignment)
+    func setFont(_ font: NSFont)
     func toggleHighlight()
     func increaseFontSize()
     func decreaseFontSize()
 }
 
 struct ContentView: View {
-    @State private var text: String = ""
+    @Binding var document: TextDocument
     @StateObject private var llmEngine = LLMEngine()
-    @State private var debouncer = Debouncer(delay: 0.5) // Ensure debouncer is a @State property
+    @State private var debouncer = Debouncer(delay: 0.5)
     @State private var textFormattingDelegate: TextFormattingDelegate?
-    @StateObject private var documentManager = DocumentManager()
 
     var body: some View {
-        ZStack(alignment: .top) { // Use ZStack to overlay toolbar
+        ZStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 0) {
-                // Document Title Bar
-                DocumentTitleBar(
-                    documentManager: documentManager,
-                    onDocumentLoaded: { newText in
-                        text = newText
-                    },
-                    getCurrentText: { text }
-                )
-                .frame(height: 60)
-                
                 InlineSuggestingTextView(
-                    text: $text,
+                    text: $document.text,
                     llmEngine: llmEngine,
                     debouncer: $debouncer,
                     formattingDelegate: $textFormattingDelegate
                 )
                 .frame(minHeight: 150, idealHeight: 300, maxHeight: .infinity)
-                .padding(.top, 20)
-                .onChange(of: text) { _, newValue in
-                    if !newValue.isEmpty && !documentManager.hasUnsavedChanges {
-                        documentManager.markAsChanged()
-                    }
-                }
             }
-            .padding() // Keep overall padding for the VStack
-            .background(Color(NSColor.windowBackgroundColor))
-            .edgesIgnoringSafeArea(.top)
+            .padding(.top, 50) // Add top padding for transparent title bar
+            .padding(.horizontal)
+            .padding(.bottom)
 
             // Floating Toolbar
             FloatingToolbar(formattingDelegate: textFormattingDelegate)
-                .padding(.top, 75) // Position below title bar
-                .padding(.horizontal, 20) // Add horizontal margins
-
+                .padding(.top, 70) // Position below title bar
+                .padding(.horizontal, 20)
         }
+        .background(Color(NSColor.windowBackgroundColor))
+        .ignoresSafeArea(.all, edges: .top) // Extend content under title bar
         .onAppear {
-            print("ContentView appeared. Starting LLM Engine.")
             llmEngine.startEngine()
-            
-            // Subscribe to keyboard shortcut notifications
-            NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("SaveDocument"),
-                object: nil,
-                queue: .main
-            ) { _ in
-                documentManager.saveDocument(text: text) { success in
-                    if success {
-                        print("Document saved successfully")
-                    } else {
-                        print("Failed to save document")
-                    }
-                }
-            }
-            
-            NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("NewDocument"),
-                object: nil,
-                queue: .main
-            ) { _ in
-                documentManager.newDocument()
-                text = ""
-            }
-            
-            NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("OpenDocument"),
-                object: nil,
-                queue: .main
-            ) { _ in
-                documentManager.openDocument { content in
-                    if let content = content {
-                        text = content
-                    }
-                }
-            }
-        }
-        .onDisappear {
-            print("ContentView disappeared. Stopping LLM Engine.")
-            llmEngine.stopEngine()
-            
-            // Remove notification observers
-            NotificationCenter.default.removeObserver(self, name: NSNotification.Name("SaveDocument"), object: nil)
-            NotificationCenter.default.removeObserver(self, name: NSNotification.Name("NewDocument"), object: nil)
-            NotificationCenter.default.removeObserver(self, name: NSNotification.Name("OpenDocument"), object: nil)
         }
     }
 }
@@ -243,8 +75,8 @@ struct FloatingToolbar: View {
         HStack(spacing: 12) {
             // Text formatting group
             HStack(spacing: 8) {
-                Button(action: { 
-                    formattingDelegate?.toggleBold()
+                Button(action: {
+                    NSApp.sendAction(#selector(NSTextView.toggleBoldface(_:)), to: nil, from: nil)
                 }) {
                     Image(systemName: "bold")
                         .font(.system(size: 16, weight: .medium))
@@ -252,8 +84,8 @@ struct FloatingToolbar: View {
                 }
                 .buttonStyle(ToolbarButtonStyle())
 
-                Button(action: { 
-                    formattingDelegate?.toggleItalic()
+                Button(action: {
+                    NSApp.sendAction(#selector(NSTextView.toggleItalics(_:)), to: nil, from: nil)
                 }) {
                     Image(systemName: "italic")
                         .font(.system(size: 16, weight: .medium))
@@ -261,8 +93,8 @@ struct FloatingToolbar: View {
                 }
                 .buttonStyle(ToolbarButtonStyle())
 
-                Button(action: { 
-                    formattingDelegate?.toggleUnderline()
+                Button(action: {
+                    NSApp.sendAction(#selector(NSTextView.toggleUnderline(_:)), to: nil, from: nil)
                 }) {
                     Image(systemName: "underline")
                         .font(.system(size: 16, weight: .medium))
@@ -270,8 +102,8 @@ struct FloatingToolbar: View {
                 }
                 .buttonStyle(ToolbarButtonStyle())
                 
-                Button(action: { 
-                    formattingDelegate?.toggleStrikethrough()
+                Button(action: {
+                    NSApp.sendAction(#selector(NSTextView.toggleStrikethrough(_:)), to: nil, from: nil)
                 }) {
                     Image(systemName: "strikethrough")
                         .font(.system(size: 16, weight: .medium))
@@ -342,28 +174,35 @@ struct FloatingToolbar: View {
             
             // Font size and highlight group
             HStack(spacing: 8) {
-                Button(action: { 
-                    formattingDelegate?.decreaseFontSize()
-                }) {
+                Button(action: { formattingDelegate?.decreaseFontSize() }) {
                     Image(systemName: "textformat.size.smaller")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.primary)
                 }
                 .buttonStyle(ToolbarButtonStyle())
                 
-                Button(action: { 
-                    formattingDelegate?.increaseFontSize()
-                }) {
+                Button(action: { formattingDelegate?.increaseFontSize() }) {
                     Image(systemName: "textformat.size.larger")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.primary)
                 }
                 .buttonStyle(ToolbarButtonStyle())
                 
-                Button(action: { 
-                    formattingDelegate?.toggleHighlight()
-                }) {
+                Button(action: { formattingDelegate?.toggleHighlight() }) {
                     Image(systemName: "highlighter")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+                .buttonStyle(ToolbarButtonStyle())
+                
+                Divider()
+                    .frame(height: 20)
+                
+                Button(action: {
+                    // Show native Font Panel
+                    NSApp.sendAction(#selector(NSFontManager.orderFrontFontPanel(_:)), to: nil, from: nil)
+                }) {
+                    Image(systemName: "character.font")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.primary)
                 }
@@ -373,7 +212,7 @@ struct FloatingToolbar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
-            VisualEffectView(material: .hudWindow, blendingMode: .withinWindow)
+            VisualEffectView(material: .popover, blendingMode: .withinWindow)
         )
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
@@ -1216,41 +1055,6 @@ class CustomInlineNSTextView: NSTextView {
             }
         }
         
-        // Handle formatting shortcuts
-        if modifierFlags.contains(.command) {
-            switch event.keyCode {
-            case 11: // B - Bold
-                if let delegate = delegate as? InlineSuggestingTextView.Coordinator {
-                    delegate.toggleBold()
-                    return
-                }
-            case 34: // I - Italic
-                if let delegate = delegate as? InlineSuggestingTextView.Coordinator {
-                    delegate.toggleItalic()
-                    return
-                }
-            case 32: // U - Underline
-                if let delegate = delegate as? InlineSuggestingTextView.Coordinator {
-                    delegate.toggleUnderline()
-                    return
-                }
-            case 1: // S - Save
-                // We'll handle this through the document manager
-                NotificationCenter.default.post(name: NSNotification.Name("SaveDocument"), object: nil)
-                return
-            case 12: // Q - Quit (let system handle)
-                break
-            case 45: // N - New
-                NotificationCenter.default.post(name: NSNotification.Name("NewDocument"), object: nil)
-                return
-            case 31: // O - Open
-                NotificationCenter.default.post(name: NSNotification.Name("OpenDocument"), object: nil)
-                return
-            default:
-                break
-            }
-        }
-        
         super.keyDown(with: event)
     }
     
@@ -1391,100 +1195,5 @@ class Debouncer: ObservableObject { // Made ObservableObject for @State usage if
     
     func cancel() {
         workItem?.cancel()
-    }
-}
-
-// MARK: - Document Title Bar
-struct DocumentTitleBar: View {
-    @ObservedObject var documentManager: DocumentManager
-    let onDocumentLoaded: (String) -> Void
-    let getCurrentText: () -> String // Добавляем способ получить текущий текст
-    
-    var body: some View {
-        HStack {
-            // File operations
-            HStack(spacing: 12) {
-                Button(action: {
-                    documentManager.newDocument()
-                    onDocumentLoaded("")
-                }) {
-                    Image(systemName: "doc")
-                        .foregroundColor(.primary)
-                }
-                .buttonStyle(TitleBarButtonStyle())
-                .help("New Document (⌘N)")
-                
-                Button(action: {
-                    documentManager.openDocument { content in
-                        if let content = content {
-                            onDocumentLoaded(content)
-                        }
-                    }
-                }) {
-                    Image(systemName: "folder")
-                        .foregroundColor(.primary)
-                }
-                .buttonStyle(TitleBarButtonStyle())
-                .help("Open Document (⌘O)")
-                
-                Button(action: {
-                    let currentText = getCurrentText()
-                    documentManager.saveDocument(text: currentText) { success in
-                        if success {
-                            print("Document saved successfully")
-                        } else {
-                            print("Failed to save document")
-                        }
-                    }
-                }) {
-                    Image(systemName: "square.and.arrow.down")
-                        .foregroundColor(.primary)
-                }
-                .buttonStyle(TitleBarButtonStyle())
-                .help("Save Document (⌘S)")
-            }
-            
-            Spacer()
-            
-            // Document title
-            HStack(spacing: 4) {
-                Text(documentManager.currentDocumentName)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                if documentManager.hasUnsavedChanges {
-                    Circle()
-                        .fill(Color.orange)
-                        .frame(width: 6, height: 6)
-                }
-            }
-            
-            Spacer()
-            
-            // Placeholder for future controls
-            HStack(spacing: 12) {
-                Spacer()
-                    .frame(width: 100) // Balance the left side
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(
-            VisualEffectView(material: .titlebar, blendingMode: .withinWindow)
-        )
-    }
-}
-
-// MARK: - Title Bar Button Style
-struct TitleBarButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(configuration.isPressed ? Color.primary.opacity(0.1) : Color.clear)
-            )
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
