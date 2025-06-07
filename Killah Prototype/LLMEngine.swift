@@ -8,17 +8,7 @@ import Foundation
 import Combine
 import AppKit
 
-// Define a custom error for LLM operations
-enum LLMError: Error, Equatable {
-    case engineNotRunning
-    case pythonScriptNotReady
-    case promptEncodingError
-    case stdinWriteError(String)
-    case processLaunchError(String)
-    case scriptError(String)
-    case aborted
-    case unknown
-}
+// LLMError enum removed, it's now in InlineSuggestingTextView.swift
 
 class LLMEngine: ObservableObject {
     @Published var suggestion: String = "" 
