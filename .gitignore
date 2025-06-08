@@ -48,3 +48,5 @@ killah_venv/
 # PyTorch models
 # *.pt
 # *.pth
+# Model
+Resources/gemma-3-4b-it/
