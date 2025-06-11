@@ -12,6 +12,7 @@
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */; };
 		762198112DF5DAE6008D7F55 /* gemma-3-4b-it in Resources */ = {isa = PBXBuildFile; fileRef = 762198102DF5DAE6008D7F55 /* gemma-3-4b-it */; };
+		767B9CA02DF88D360022E8AF /* gemma-3-4b-it-IQ4_NL.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 767B9C9F2DF88D360022E8AF /* gemma-3-4b-it-IQ4_NL.gguf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +23,7 @@
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		762198102DF5DAE6008D7F55 /* gemma-3-4b-it */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "gemma-3-4b-it"; path = "Resources/gemma-3-4b-it"; sourceTree = "<group>"; };
+		767B9C9F2DF88D360022E8AF /* gemma-3-4b-it-IQ4_NL.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-it-IQ4_NL.gguf"; path = "Resources/gemma-3-4b-it-IQ4_NL.gguf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -46,6 +48,7 @@
 		40C731562DC63936004D753D = {
 			isa = PBXGroup;
 			children = (
+				767B9C9F2DF88D360022E8AF /* gemma-3-4b-it-IQ4_NL.gguf */,
 				762198102DF5DAE6008D7F55 /* gemma-3-4b-it */,
 				408B41602DCBA8A800318056 /* Info.plist */,
 				408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */,
@@ -130,6 +133,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				767B9CA02DF88D360022E8AF /* gemma-3-4b-it-IQ4_NL.gguf in Resources */,
 				762198112DF5DAE6008D7F55 /* gemma-3-4b-it in Resources */,
 				408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,

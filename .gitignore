@@ -50,3 +50,4 @@ killah_venv/
 # *.pth
 # Model
 Resources/gemma-3-4b-it/
+Resources/gemma-3-4b-it-IQ4_NL.gguf

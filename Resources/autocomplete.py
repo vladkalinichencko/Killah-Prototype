@@ -8,85 +8,64 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List, Optional
+from llama_cpp import Llama
+
 
 
 # Disable Metal Performance Shaders to avoid mach-O errors in app bundle
-os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+#os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 
 # Force CPU backend to avoid GPU-related issues in packaged app
-torch.backends.mps.is_available = lambda: False
-torch.backends.cuda.is_available = lambda: False
+#torch.backends.mps.is_available = lambda: False
+#torch.backends.cuda.is_available = lambda: False
 
 
 # Путь к локальной папке модели
 here = os.path.abspath(os.path.dirname(__file__))
-model_dir = os.path.join(here, "gemma-3-4b-it")
+model_path = os.path.join(here, "gemma-3-4b-it-IQ4_NL.gguf")
 
 # Проверка наличия модели
-if not os.path.exists(model_dir):
-    print(f"ERROR: Model directory not found at {model_dir}", file=sys.stderr, flush=True)
+if not os.path.exists(model_path):
+    print(f"ERROR: Model directory not found at {model_path}", file=sys.stderr, flush=True)
     print(f"Current directory: {here}", file=sys.stderr, flush=True)
     print(f"Available files: {os.listdir(here) if os.path.exists(here) else 'Directory not found'}", file=sys.stderr, flush=True)
     sys.exit(1)
 
-# Инициализация модели и токенизатора
+# Инициализация модели
 try:
-    print(f"Loading tokenizer and model from: {model_dir}", file=sys.stderr, flush=True)
-    tokenizer = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_dir,
-        torch_dtype=torch.bfloat16,
-        device_map=device,
-        low_cpu_mem_usage=True,
-        local_files_only=True
-    )
-    print("Model and tokenizer loaded successfully", file=sys.stderr, flush=True)
+    print(f"Loading model from: {model_path}", file=sys.stderr, flush=True)
+    llm = Llama(model_path=model_path, n_ctx=512, n_threads=8, verbose=True)
+    print("Model loaded successfully", file=sys.stderr, flush=True)
 except Exception as e:
-    print(f"ERROR loading model or tokenizer: {e}", file=sys.stderr, flush=True)
-    traceback.print_exc(file=sys.stderr)
+    print(f"ERROR loading model: {e}", file=sys.stderr, flush=True)
     sys.exit(1)
 
-# Функция для генерации автодополнений
-def generate_suggestions(prompt_text: str, persona_vector: Optional[List[float]] = None, max_suggestions: int = 3) -> List[str]:
+def generate_suggestions(prompt_text: str, persona_vector: Optional[List[float]] = None, max_suggestions: int = 1) -> List[str]:
+    if not prompt_text.strip():
+        print("Empty prompt received, returning empty suggestions.", file=sys.stderr, flush=True)
+        return []
     try:
-        print(f"Generating suggestions for: {prompt_text}", file=sys.stderr, flush=True)
-        # Кодирование промпта
-        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-
-        # Заглушка для persona_vector
-        if persona_vector is not None:
-            print("Persona vector received, but not integrated in this minimal version.", file=sys.stderr, flush=True)
-
-        # Генерация токенов
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=20,  # Сокращено с 50 до 20
-            do_sample=True,
-            temperature=0.8,    # Немного снижен для стабильности
-            top_k=50,           # Уменьшен с 64
-            top_p=0.9,          # Уменьшен с 0.95
-            repetition_penalty=1.2,  # Увеличен для разнообразия
-            num_return_sequences=max_suggestions
-        )
-
-        # Декодирование результатов
         suggestions = []
-        for output in outputs:
-            generated_text = tokenizer.decode(output, skip_special_tokens=True)
-            suggestion = generated_text[len(prompt_text):].strip().split("\n")[0]
-            if suggestion and suggestion not in suggestions:  # Исключение дубликатов
+        for _ in range(max_suggestions):
+            output = llm(
+                prompt_text,
+                max_tokens=15,
+                temperature=1.0,
+                top_k=64,  # Рекомендация от Unsloth для Gemma 3
+                top_p=0.95,
+                min_p=0.0,
+                repeat_penalty=1.0,
+                stop=["<end_of_turn>", "\n"]
+            )
+            suggestion = output["choices"][0]["text"].strip().split("\n")[0]
+            if suggestion and suggestion not in suggestions:
                 suggestions.append(suggestion)
-                
         print(f"Generated suggestions: {suggestions}", file=sys.stderr, flush=True)
-
-        return suggestions[:max_suggestions]
-
+        return suggestions
     except Exception as e:
         print(f"Error during generation: {e}", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
         return []
-
+    
 # Основной цикл обработки
 print("Entering main processing loop.", flush=True)
 current_prompt = None
@@ -94,7 +73,7 @@ interrupted = False
 
 while True:
     try:
-        readable, _, _ = select.select([sys.stdin], [], [], 0.1)  # Увеличен таймаут до 0.1 для более надёжного чтения
+        readable, _, _ = select.select([sys.stdin], [], [], 0.05)
 
         if readable:
             new_prompt_line = sys.stdin.readline()
