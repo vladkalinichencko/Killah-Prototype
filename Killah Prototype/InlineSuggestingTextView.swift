@@ -266,95 +266,109 @@ struct InlineSuggestingTextView: NSViewRepresentable {
 }
 
 extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
-    func toggleBold() {
-        guard let textView = managedTextView else { return }
-        
-        // Получаем текущий выделенный диапазон
-        let selectedRange = textView.selectedRange
-        
-        // Если ничего не выделено, форматируем следующий набираемый текст
-        if selectedRange.length == 0 {
-            // Переключаем состояние для будущего ввода
-            if let font = textView.typingAttributes[.font] as? NSFont {
-                let newFont = font.fontDescriptor.symbolicTraits.contains(.bold) ? 
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.bold), size: font.pointSize)
-                textView.typingAttributes[.font] = newFont ?? font
-            }
-            return
-        }
-        
-        // Применяем форматирование к выделенному тексту
-        textView.textStorage?.enumerateAttribute(.font, in: selectedRange) { value, range, _ in
-            if let font = value as? NSFont {
-                let newFont = font.fontDescriptor.symbolicTraits.contains(.bold) ? 
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.bold), size: font.pointSize)
-                textView.textStorage?.addAttribute(.font, value: newFont ?? font, range: range)
-            }
-        }
-    }
-    
-    func toggleItalic() {
-        guard let textView = managedTextView else { return }
-        
-        let selectedRange = textView.selectedRange
-        
-        if selectedRange.length == 0 {
-            if let font = textView.typingAttributes[.font] as? NSFont {
-                let newFont = font.fontDescriptor.symbolicTraits.contains(.italic) ? 
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: font.pointSize)
-                textView.typingAttributes[.font] = newFont ?? font
-            }
-            return
-        }
-        
-        textView.textStorage?.enumerateAttribute(.font, in: selectedRange) { value, range, _ in
-            if let font = value as? NSFont {
-                let newFont = font.fontDescriptor.symbolicTraits.contains(.italic) ? 
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits([]), size: font.pointSize) :
-                    NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: font.pointSize)
-                textView.textStorage?.addAttribute(.font, value: newFont ?? font, range: range)
-            }
-        }
-    }
-    
-    func toggleUnderline() {
-        guard let textView = managedTextView else { return }
-        
-        let selectedRange = textView.selectedRange
-        
-        if selectedRange.length == 0 {
-            let currentUnderline = textView.typingAttributes[.underlineStyle] as? Int ?? 0
-            textView.typingAttributes[.underlineStyle] = currentUnderline == 0 ? NSUnderlineStyle.single.rawValue : 0
-            return
-        }
-        
-        textView.textStorage?.enumerateAttribute(.underlineStyle, in: selectedRange) { value, range, _ in
-            let currentValue = value as? Int ?? 0
-            let newValue = currentValue == 0 ? NSUnderlineStyle.single.rawValue : 0
-            textView.textStorage?.addAttribute(.underlineStyle, value: newValue, range: range)
-        }
-    }
-    
-    func toggleStrikethrough() {
-        guard let textView = managedTextView else { return }
-        
-        let selectedRange = textView.selectedRange
-        
-        if selectedRange.length == 0 {
-            let currentStrikethrough = textView.typingAttributes[.strikethroughStyle] as? Int ?? 0
-            textView.typingAttributes[.strikethroughStyle] = currentStrikethrough == 0 ? NSUnderlineStyle.single.rawValue : 0
-            return
-        }
-        
-        textView.textStorage?.enumerateAttribute(.strikethroughStyle, in: selectedRange) { value, range, _ in
-            let currentValue = value as? Int ?? 0
-            let newValue = currentValue == 0 ? NSUnderlineStyle.single.rawValue : 0
-            textView.textStorage?.addAttribute(.strikethroughStyle, value: newValue, range: range)
-        }
-    }
+    // Метод для жирного текста
+     func toggleBold() {
+         guard let textView = managedTextView else { return }
+         
+         let selectedRange = textView.selectedRange
+         if selectedRange.length == 0 {
+             // Переключаем состояние для будущего ввода
+             if let font = textView.typingAttributes[.font] as? NSFont {
+                 var newTraits = font.fontDescriptor.symbolicTraits
+                 if newTraits.contains(.bold) {
+                     newTraits.remove(.bold) // Убираем жирный стиль
+                 } else {
+                     newTraits.insert(.bold) // Добавляем жирный стиль
+                 }
+                 let newFont = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(newTraits), size: font.pointSize)
+                 textView.typingAttributes[.font] = newFont ?? font
+             }
+             return
+         }
+         
+         textView.textStorage?.enumerateAttribute(.font, in: selectedRange) { value, range, _ in
+             if let font = value as? NSFont {
+                 var newTraits = font.fontDescriptor.symbolicTraits
+                 if newTraits.contains(.bold) {
+                     newTraits.remove(.bold) // Убираем жирный стиль
+                 } else {
+                     newTraits.insert(.bold) // Добавляем жирный стиль
+                 }
+                 let newFont = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(newTraits), size: font.pointSize)
+                 textView.textStorage?.addAttribute(.font, value: newFont ?? font, range: range)
+             }
+         }
+     }
+
+     // Метод для курсива
+     func toggleItalic() {
+         guard let textView = managedTextView else { return }
+         
+         let selectedRange = textView.selectedRange
+         if selectedRange.length == 0 {
+             // Переключаем состояние для будущего ввода
+             if let font = textView.typingAttributes[.font] as? NSFont {
+                 var newTraits = font.fontDescriptor.symbolicTraits
+                 if newTraits.contains(.italic) {
+                     newTraits.remove(.italic) // Убираем курсив
+                 } else {
+                     newTraits.insert(.italic) // Добавляем курсив
+                 }
+                 let newFont = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(newTraits), size: font.pointSize)
+                 textView.typingAttributes[.font] = newFont ?? font
+             }
+             return
+         }
+         
+         textView.textStorage?.enumerateAttribute(.font, in: selectedRange) { value, range, _ in
+             if let font = value as? NSFont {
+                 var newTraits = font.fontDescriptor.symbolicTraits
+                 if newTraits.contains(.italic) {
+                     newTraits.remove(.italic) // Убираем курсив
+                 } else {
+                     newTraits.insert(.italic) // Добавляем курсив
+                 }
+                 let newFont = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(newTraits), size: font.pointSize)
+                 textView.textStorage?.addAttribute(.font, value: newFont ?? font, range: range)
+             }
+         }
+     }
+
+     // Метод для подчеркивания
+     func toggleUnderline() {
+         guard let textView = managedTextView else { return }
+         
+         let selectedRange = textView.selectedRange
+         if selectedRange.length == 0 {
+             let currentUnderline = textView.typingAttributes[.underlineStyle] as? Int ?? 0
+             textView.typingAttributes[.underlineStyle] = currentUnderline == 0 ? NSUnderlineStyle.single.rawValue : 0
+             return
+         }
+         
+         textView.textStorage?.enumerateAttribute(.underlineStyle, in: selectedRange) { value, range, _ in
+             let currentValue = value as? Int ?? 0
+             let newValue = currentValue == 0 ? NSUnderlineStyle.single.rawValue : 0
+             textView.textStorage?.addAttribute(.underlineStyle, value: newValue, range: range)
+         }
+     }
+
+     // Метод для зачеркивания
+     func toggleStrikethrough() {
+         guard let textView = managedTextView else { return }
+         
+         let selectedRange = textView.selectedRange
+         if selectedRange.length == 0 {
+             let currentStrikethrough = textView.typingAttributes[.strikethroughStyle] as? Int ?? 0
+             textView.typingAttributes[.strikethroughStyle] = currentStrikethrough == 0 ? NSUnderlineStyle.single.rawValue : 0
+             return
+         }
+         
+         textView.textStorage?.enumerateAttribute(.strikethroughStyle, in: selectedRange) { value, range, _ in
+             let currentValue = value as? Int ?? 0
+             let newValue = currentValue == 0 ? NSUnderlineStyle.single.rawValue : 0
+             textView.textStorage?.addAttribute(.strikethroughStyle, value: newValue, range: range)
+         }
+     }
     
     func toggleBulletList() {
         guard let textView = managedTextView else { return }

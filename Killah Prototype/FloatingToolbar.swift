@@ -10,7 +10,7 @@ struct FloatingToolbar: View {
             // Text formatting group
             HStack(spacing: 8) {
                 Button(action: {
-                    NSApp.sendAction(#selector(NSResponder.toggleBoldface(_:)), to: nil, from: nil)
+                    formattingDelegate?.toggleBold() // bold
                 }) {
                     Image(systemName: "bold")
                         .font(.system(size: 16, weight: .medium))
@@ -18,8 +18,9 @@ struct FloatingToolbar: View {
                 }
                 .buttonStyle(ToolbarButtonStyle())
 
+
                 Button(action: {
-                    NSApp.sendAction(#selector(NSResponder.toggleItalics(_:)), to: nil, from: nil)
+                    formattingDelegate?.toggleItalic() // italic
                 }) {
                     Image(systemName: "italic")
                         .font(.system(size: 16, weight: .medium))
@@ -28,7 +29,7 @@ struct FloatingToolbar: View {
                 .buttonStyle(ToolbarButtonStyle())
 
                 Button(action: {
-                    NSApp.sendAction(#selector(NSResponder.toggleUnderline(_:)), to: nil, from: nil)
+                    formattingDelegate?.toggleUnderline() // underline
                 }) {
                     Image(systemName: "underline")
                         .font(.system(size: 16, weight: .medium))
@@ -37,7 +38,7 @@ struct FloatingToolbar: View {
                 .buttonStyle(ToolbarButtonStyle())
 
                 Button(action: {
-                    NSApp.sendAction(#selector(NSResponder.toggleStrikethrough(_:)), to: nil, from: nil)
+                    formattingDelegate?.toggleStrikethrough() // strikethrough
                 }) {
                     Image(systemName: "strikethrough")
                         .font(.system(size: 16, weight: .medium))
