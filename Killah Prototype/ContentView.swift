@@ -41,29 +41,31 @@ struct ContentView: View {
     @State private var textFormattingDelegate: TextFormattingDelegate?
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 0) {
-                InlineSuggestingTextView(
-                    text: $document.text,
-                    llmEngine: llmEngine,
-                    debouncer: $debouncer,
-                    formattingDelegate: $textFormattingDelegate
-                )
-                .frame(minHeight: 150, idealHeight: 300, maxHeight: .infinity)
-            }
-            .padding(.top, 50) // Add top padding for transparent title bar
-            .padding(.horizontal)
-            .padding(.bottom)
-
-            // Floating Toolbar
+        VStack {
+            // Floating Toolbar - теперь он вверху
             FloatingToolbar(formattingDelegate: textFormattingDelegate)
-                .padding(.top, 70) // Position below title bar
-                .padding(.horizontal, 20)
+                .padding(.top, 10) // Убираем лишнее пространство, если нужно
+
+            Spacer()
+
+            // InlineSuggestingTextView с выравниванием по центру
+            InlineSuggestingTextView(
+                text: $document.text,
+                llmEngine: llmEngine,
+                debouncer: $debouncer,
+                formattingDelegate: $textFormattingDelegate
+            )
+            .frame(minHeight: 150, idealHeight: 300, maxHeight: .infinity)
+            .padding(.horizontal)
+            .background(Color(NSColor.windowBackgroundColor)) // Фон для текста
+            .cornerRadius(12)
+            
+            Spacer()
         }
-        .background(Color(NSColor.windowBackgroundColor))
-        .ignoresSafeArea(.all, edges: .top) // Extend content under title bar
         .onAppear {
             llmEngine.startEngine()
         }
     }
 }
+
+
