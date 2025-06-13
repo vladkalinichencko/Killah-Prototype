@@ -1,5 +1,221 @@
 import SwiftUI
 import AppKit
+import QuartzCore
+
+// MARK: - Interactive Cursor SwiftUI Components
+
+enum CursorMenuType {
+    case promptInput
+    case audioRecording
+    case textFormatting
+    case aiActions
+}
+
+struct CursorMenu: View {
+    let menuType: CursorMenuType
+    let onDismiss: () -> Void
+    @State private var promptText: String = ""
+    @State private var isRecording: Bool = false
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            switch menuType {
+            case .promptInput:
+                promptInputMenu
+            case .audioRecording:
+                audioRecordingMenu
+            case .textFormatting:
+                textFormattingMenu
+            case .aiActions:
+                aiActionsMenu
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+    }
+    
+    private var promptInputMenu: some View {
+        VStack(spacing: 8) {
+            Text("AI Prompt")
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            TextField("Enter your prompt...", text: $promptText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 250)
+            
+            HStack(spacing: 8) {
+                Button("Cancel") {
+                    onDismiss()
+                }
+                .buttonStyle(.bordered)
+                
+                Button("Generate") {
+                    // Handle prompt generation
+                    print("Generating with prompt: \(promptText)")
+                    onDismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(promptText.isEmpty)
+            }
+        }
+    }
+    
+    private var audioRecordingMenu: some View {
+        VStack(spacing: 8) {
+            Text("Voice Input")
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            Button(action: {
+                isRecording.toggle()
+            }) {
+                HStack {
+                    Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                        .font(.title)
+                        .foregroundColor(isRecording ? .red : .blue)
+                    
+                    Text(isRecording ? "Stop Recording" : "Start Recording")
+                        .font(.body)
+                }
+            }
+            .buttonStyle(.bordered)
+            
+            if isRecording {
+                HStack {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 8, height: 8)
+                        .opacity(0.8)
+                    
+                    Text("Recording...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Button("Close") {
+                onDismiss()
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+    
+    private var textFormattingMenu: some View {
+        VStack(spacing: 8) {
+            Text("Text Formatting")
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
+                FormatButton(icon: "bold", title: "Bold") { /* Handle bold */ }
+                FormatButton(icon: "italic", title: "Italic") { /* Handle italic */ }
+                FormatButton(icon: "underline", title: "Underline") { /* Handle underline */ }
+                FormatButton(icon: "list.bullet", title: "Bullets") { /* Handle bullets */ }
+                FormatButton(icon: "list.number", title: "Numbers") { /* Handle numbers */ }
+                FormatButton(icon: "highlighter", title: "Highlight") { /* Handle highlight */ }
+            }
+            
+            Button("Close") {
+                onDismiss()
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+    
+    private var aiActionsMenu: some View {
+        VStack(spacing: 8) {
+            Text("AI Actions")
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            VStack(spacing: 4) {
+                ActionButton(title: "Continue Writing", icon: "pencil.line") { 
+                    print("Continue writing")
+                    onDismiss()
+                }
+                ActionButton(title: "Improve Text", icon: "wand.and.stars") { 
+                    print("Improve text")
+                    onDismiss()
+                }
+                ActionButton(title: "Summarize", icon: "text.alignleft") { 
+                    print("Summarize")
+                    onDismiss()
+                }
+                ActionButton(title: "Translate", icon: "globe") { 
+                    print("Translate")
+                    onDismiss()
+                }
+            }
+            
+            Button("Close") {
+                onDismiss()
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+}
+
+struct FormatButton: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption)
+                Text(title)
+                    .font(.caption2)
+            }
+            .frame(width: 60, height: 40)
+        }
+        .buttonStyle(.bordered)
+    }
+}
+
+struct ActionButton: View {
+    let title: String
+    let icon: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.body)
+                Text(title)
+                    .font(.body)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.bordered)
+    }
+}
+
+// MARK: - Cursor State Management
+
+class InteractiveCursorManager: ObservableObject {
+    @Published var isMenuVisible: Bool = false
+    @Published var currentMenuType: CursorMenuType = .promptInput
+    @Published var cursorPosition: CGPoint = .zero
+    @Published var isHovered: Bool = false
+    
+    func showMenu(type: CursorMenuType, at position: CGPoint) {
+        currentMenuType = type
+        cursorPosition = position
+        isMenuVisible = true
+    }
+    
+    func hideMenu() {
+        isMenuVisible = false
+    }
+}
 
 // --- NSViewRepresentable ---
 struct InlineSuggestingTextView: NSViewRepresentable {
@@ -573,6 +789,9 @@ class CustomInlineNSTextView: NSTextView {
     weak var llmInteractionDelegate: LLMInteractionDelegate?
     private var customLayoutManager: CustomLayoutManager!
     
+    // Smart caret manager
+    private var smartCaret: SmartCaret!
+    
     var currentGhostTextRange: NSRange?
 
     // To track if committed text actually changed by user typing vs. programmatic changes
@@ -605,6 +824,9 @@ class CustomInlineNSTextView: NSTextView {
             self.autoresizingMask = [.width] // Resize horizontally with superview
         }
         self.lastCommittedTextForChangeDetection = self.string
+        
+        // Setup smart caret
+        smartCaret = SmartCaret(textView: self)
     }
     
     convenience override init(frame frameRect: NSRect) {
@@ -616,6 +838,40 @@ class CustomInlineNSTextView: NSTextView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    // MARK: - Forward events to SmartCaret
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        smartCaret.setupCursorTracking(in: self)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        smartCaret.handleMouseMoved(event: event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        smartCaret.handleMouseMoved(event: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        smartCaret.handleMouseMoved(event: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if hasGhostText() {
+            // If ghost text is present, any click dismisses it.
+            print("CustomInlineNSTextView.mouseDown: Ghost text present. Dismissing suggestion due to click.")
+            llmInteractionDelegate?.dismissSuggestion()
+            // The dismissSuggestion call will clear currentGhostTextRange.
+            // Subsequent calls to smartCaret.handleMouseDown and super.mouseDown
+            // will operate on the text view *after* ghost text has been cleared.
+        }
+        smartCaret.handleMouseDown(event: event)
+        super.mouseDown(with: event)
+    }
     
     override var string: String {
         didSet {
@@ -625,6 +881,7 @@ class CustomInlineNSTextView: NSTextView {
             }
         }
     }
+
 
     func didCommittedTextChangeByUser(newCommittedText: String, previousCommittedText: String) -> Bool {
         // This is a simplified check. A more robust way would be to see if the change
@@ -738,6 +995,8 @@ class CustomInlineNSTextView: NSTextView {
             self.selectedRange = NSRange(location: finalGhostRange.location, length: 0)
             self.scrollRangeToVisible(finalGhostRange) // Make sure the ghost text is visible
         }
+        // Reset typing attributes to default after ghost text so user text is not gray
+        self.typingAttributes[.foregroundColor] = NSColor.textColor
     }
 
     func clearGhostText() {
@@ -919,34 +1178,22 @@ class CustomInlineNSTextView: NSTextView {
         return range
     }
     
-    // Override mouse events to clear ghost text when clicking elsewhere
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        let charIndex = characterIndexForInsertion(at: point)
-        
-        // Если кликнули не в ghost text область, очищаем ghost text
-        if hasGhostText(), let ghostRange = currentGhostTextRange {
-            if !(charIndex >= ghostRange.location && charIndex <= NSMaxRange(ghostRange)) {
-                // Клик вне ghost text
-                llmInteractionDelegate?.dismissSuggestion() // Это вызовет clearGhostText
-            }
-        }
-        
-        super.mouseDown(with: event)
-    }
-
     // Helper method to get character index for mouse position
     internal override func characterIndexForInsertion(at point: NSPoint) -> Int {
         guard let layoutManager = self.layoutManager,
               let textContainer = self.textContainer else {
             return 0 // Fallback or handle error
         }
-        
         // Ensure layout is up-to-date
         layoutManager.ensureLayout(for: textContainer)
-        
+        // Determine glyph and character index
         let glyphIndex = layoutManager.glyphIndex(for: point, in: textContainer, fractionOfDistanceThroughGlyph: nil)
-        return layoutManager.characterIndexForGlyph(at: glyphIndex)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        // Prevent cursor inside ghost text
+        if let gr = currentGhostTextRange, charIndex > gr.location {
+            return gr.location
+        }
+        return charIndex
     }
 }
 
