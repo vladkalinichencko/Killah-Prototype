@@ -44,6 +44,7 @@ venv/
 env/
 ENV/
 killah_venv/
+Jupyter Notebooks/.venv
 
 # PyTorch models
 # *.pt
