@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import QuartzCore
 
 // --- NSViewRepresentable ---
 struct InlineSuggestingTextView: NSViewRepresentable {
