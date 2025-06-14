@@ -617,7 +617,7 @@ class CustomInlineNSTextView: NSTextView {
     convenience override init(frame frameRect: NSRect) {
          // This now correctly calls the designated initializer of this class (CustomInlineNSTextView)
          // which will, in turn, call super.init(frame:textContainer:)
-         self.init(frame: frameRect, textContainer: nil) 
+         self.init(frame: frameRect, textContainer: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -646,13 +646,23 @@ class CustomInlineNSTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if hasGhostText() {
-            // If ghost text is present, any click dismisses it.
-            print("CustomInlineNSTextView.mouseDown: Ghost text present. Dismissing suggestion due to click.")
-            llmInteractionDelegate?.dismissSuggestion()
-            // The dismissSuggestion call will clear currentGhostTextRange.
-            // Subsequent calls to smartCaret.handleMouseDown and super.mouseDown
-            // will operate on the text view *after* ghost text has been cleared.
+        let point = convert(event.locationInWindow, from: nil)
+        let charIndex = characterIndexForInsertion(at: point)
+        
+        // Если есть ghost text и клик произошел в его области
+        if hasGhostText(), let ghostRange = currentGhostTextRange {
+            if charIndex >= ghostRange.location && charIndex <= NSMaxRange(ghostRange) {
+                // Клик в ghost text: перемещаем курсор в начало ghost text (конец committed text)
+                let newCursorPosition = ghostRange.location
+                self.selectedRange = NSRange(location: newCursorPosition, length: 0)
+                self.scrollRangeToVisible(self.selectedRange)
+                // Не вызываем dismissSuggestion, чтобы сохранить ghost text
+                // Пропускаем super.mouseDown, так как мы обработали событие
+                return
+            } else {
+                // Клик вне ghost text: очищаем ghost text
+                llmInteractionDelegate?.dismissSuggestion() // Это вызовет clearGhostText
+            }
         }
         smartCaret.handleMouseDown(event: event)
         super.mouseDown(with: event)
@@ -934,32 +944,37 @@ class CustomInlineNSTextView: NSTextView {
         }
     }
     
+    override func selectAll(_ sender: Any?) {
+        if hasGhostText(), let ghostRange = currentGhostTextRange {
+            // Выделяем только committed text (до начала ghost text)
+            let committedTextRange = NSRange(location: 0, length: ghostRange.location)
+            self.setSelectedRange(committedTextRange)
+            // Очищаем ghost text
+            llmInteractionDelegate?.dismissSuggestion()
+        } else {
+            // Если нет ghost text, выполняем стандартное выделение всего текста
+            super.selectAll(sender)
+        }
+    }
+    
     // Helper method to adjust selection to avoid ghost text
     private func adjustSelectionRange(_ range: NSRange, ghostRange: NSRange) -> NSRange {
         let rangeEnd = NSMaxRange(range)
         let ghostEnd = NSMaxRange(ghostRange)
         
-        // Если выделение начинается внутри ghost text, перемещаем в начало
-        if range.location >= ghostRange.location && range.location < ghostEnd {
-            // Если это просто клик (length 0), ставим курсор в начало ghost text
-            if range.length == 0 {
-                return NSRange(location: ghostRange.location, length: 0)
-            }
-            // Если это выделение, начинающееся в ghost text, ограничиваем его началом ghost text
-            // Это предотвратит выделение части ghost text.
-            // Более сложное поведение (например, разрешить выделение всего ghost text) потребует доп. логики.
-            // Пока что, если выделение начинается в ghost text, оно "схлопывается" до курсора в начале ghost text.
-            // Или, если мы хотим запретить выделение *в* ghost text, но разрешить выделение *до* него:
-            // return NSRange(location: ghostRange.location, length: 0) // Схлопываем
-             return NSRange(location: ghostRange.location, length: 0) // Default: cursor at start of ghost
+        // Если выделение полностью внутри ghost text
+        if range.location >= ghostRange.location && rangeEnd <= ghostEnd {
+            // Схлопываем выделение до курсора в начале ghost text
+            return NSRange(location: ghostRange.location, length: 0)
         }
         
-        // Если выделение пересекается с ghost text, обрезаем его
+        // Если выделение начинается до ghost text, но заканчивается внутри или после него
         if range.location < ghostRange.location && rangeEnd > ghostRange.location {
-            // Выделение заканчивается на начале ghost text
+            // Обрезаем выделение до начала ghost text
             return NSRange(location: range.location, length: ghostRange.location - range.location)
         }
         
+        // Если выделение полностью вне ghost text (до или после), оставляем как есть
         return range
     }
     
@@ -1088,4 +1103,3 @@ let kVK_Tab: UInt16 = 0x30
 let kVK_RightArrow: UInt16 = 0x7C
 let kVK_Escape: UInt16 = 0x35
 #endif
-
