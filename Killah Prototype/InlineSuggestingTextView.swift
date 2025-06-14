@@ -978,7 +978,6 @@ class CustomInlineNSTextView: NSTextView {
         return range
     }
     
-    
     // Helper method to get character index for mouse position
     internal override func characterIndexForInsertion(at point: NSPoint) -> Int {
         guard let layoutManager = self.layoutManager,
