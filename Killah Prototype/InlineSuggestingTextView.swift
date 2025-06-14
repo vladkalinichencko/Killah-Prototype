@@ -882,7 +882,6 @@ class CustomInlineNSTextView: NSTextView {
     
     // Override selection methods to prevent ghost text selection
     override func setSelectedRange(_ charRange: NSRange) {
-        // Если пытаемся выделить ghost text, корректируем диапазон
         if let ghostRange = currentGhostTextRange {
             let adjustedRange = adjustSelectionRange(charRange, ghostRange: ghostRange)
             super.setSelectedRange(adjustedRange)
@@ -890,33 +889,24 @@ class CustomInlineNSTextView: NSTextView {
             super.setSelectedRange(charRange)
         }
     }
-    
-    // Helper method to adjust selection to avoid ghost text
+
     private func adjustSelectionRange(_ range: NSRange, ghostRange: NSRange) -> NSRange {
         let rangeEnd = NSMaxRange(range)
         let ghostEnd = NSMaxRange(ghostRange)
         
-        // Если выделение начинается внутри ghost text, перемещаем в начало
+        // Если выделение начинается внутри ghost text
         if range.location >= ghostRange.location && range.location < ghostEnd {
-            // Если это просто клик (length 0), ставим курсор в начало ghost text
-            if range.length == 0 {
-                return NSRange(location: ghostRange.location, length: 0)
-            }
-            // Если это выделение, начинающееся в ghost text, ограничиваем его началом ghost text
-            // Это предотвратит выделение части ghost text.
-            // Более сложное поведение (например, разрешить выделение всего ghost text) потребует доп. логики.
-            // Пока что, если выделение начинается в ghost text, оно "схлопывается" до курсора в начале ghost text.
-            // Или, если мы хотим запретить выделение *в* ghost text, но разрешить выделение *до* него:
-            // return NSRange(location: ghostRange.location, length: 0) // Схлопываем
-             return NSRange(location: ghostRange.location, length: 0) // Default: cursor at start of ghost
+            // Перемещаем курсор в начало ghost text
+            return NSRange(location: ghostRange.location, length: 0)
         }
         
-        // Если выделение пересекается с ghost text, обрезаем его
+        // Если выделение пересекает ghost text
         if range.location < ghostRange.location && rangeEnd > ghostRange.location {
-            // Выделение заканчивается на начале ghost text
+            // Обрезаем выделение до начала ghost text
             return NSRange(location: range.location, length: ghostRange.location - range.location)
         }
         
+        // Если выделение полностью вне ghost text, оставляем как есть
         return range
     }
     
@@ -925,16 +915,24 @@ class CustomInlineNSTextView: NSTextView {
         let point = convert(event.locationInWindow, from: nil)
         let charIndex = characterIndexForInsertion(at: point)
         
-        // Если кликнули не в ghost text область, очищаем ghost text
-        if hasGhostText(), let ghostRange = currentGhostTextRange {
-            if !(charIndex >= ghostRange.location && charIndex <= NSMaxRange(ghostRange)) {
-                // Клик вне ghost text
-                llmInteractionDelegate?.dismissSuggestion() // Это вызовет clearGhostText
+        // Если есть ghost text и клик произошел в его области
+            if hasGhostText(), let ghostRange = currentGhostTextRange {
+                if charIndex >= ghostRange.location && charIndex <= NSMaxRange(ghostRange) {
+                    // Клик в ghost text: перемещаем курсор в начало ghost text (конец committed text)
+                    let newCursorPosition = ghostRange.location
+                    self.selectedRange = NSRange(location: newCursorPosition, length: 0)
+                    self.scrollRangeToVisible(self.selectedRange)
+                    // Не вызываем dismissSuggestion, чтобы сохранить ghost text
+                    // Пропускаем super.mouseDown, так как мы обработали событие
+                    return
+                } else {
+                    // Клик вне ghost text: очищаем ghost text
+                    llmInteractionDelegate?.dismissSuggestion() // Это вызовет clearGhostText
+                }
             }
+            
+            super.mouseDown(with: event)
         }
-        
-        super.mouseDown(with: event)
-    }
 
     // Helper method to get character index for mouse position
     internal override func characterIndexForInsertion(at point: NSPoint) -> Int {
