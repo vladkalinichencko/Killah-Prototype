@@ -2,221 +2,6 @@ import SwiftUI
 import AppKit
 import QuartzCore
 
-// MARK: - Interactive Cursor SwiftUI Components
-
-enum CursorMenuType {
-    case promptInput
-    case audioRecording
-    case textFormatting
-    case aiActions
-}
-
-struct CursorMenu: View {
-    let menuType: CursorMenuType
-    let onDismiss: () -> Void
-    @State private var promptText: String = ""
-    @State private var isRecording: Bool = false
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            switch menuType {
-            case .promptInput:
-                promptInputMenu
-            case .audioRecording:
-                audioRecordingMenu
-            case .textFormatting:
-                textFormattingMenu
-            case .aiActions:
-                aiActionsMenu
-            }
-        }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-    }
-    
-    private var promptInputMenu: some View {
-        VStack(spacing: 8) {
-            Text("AI Prompt")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            TextField("Enter your prompt...", text: $promptText)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 250)
-            
-            HStack(spacing: 8) {
-                Button("Cancel") {
-                    onDismiss()
-                }
-                .buttonStyle(.bordered)
-                
-                Button("Generate") {
-                    // Handle prompt generation
-                    print("Generating with prompt: \(promptText)")
-                    onDismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(promptText.isEmpty)
-            }
-        }
-    }
-    
-    private var audioRecordingMenu: some View {
-        VStack(spacing: 8) {
-            Text("Voice Input")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            Button(action: {
-                isRecording.toggle()
-            }) {
-                HStack {
-                    Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                        .font(.title)
-                        .foregroundColor(isRecording ? .red : .blue)
-                    
-                    Text(isRecording ? "Stop Recording" : "Start Recording")
-                        .font(.body)
-                }
-            }
-            .buttonStyle(.bordered)
-            
-            if isRecording {
-                HStack {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
-                        .opacity(0.8)
-                    
-                    Text("Recording...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            Button("Close") {
-                onDismiss()
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-    
-    private var textFormattingMenu: some View {
-        VStack(spacing: 8) {
-            Text("Text Formatting")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
-                FormatButton(icon: "bold", title: "Bold") { /* Handle bold */ }
-                FormatButton(icon: "italic", title: "Italic") { /* Handle italic */ }
-                FormatButton(icon: "underline", title: "Underline") { /* Handle underline */ }
-                FormatButton(icon: "list.bullet", title: "Bullets") { /* Handle bullets */ }
-                FormatButton(icon: "list.number", title: "Numbers") { /* Handle numbers */ }
-                FormatButton(icon: "highlighter", title: "Highlight") { /* Handle highlight */ }
-            }
-            
-            Button("Close") {
-                onDismiss()
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-    
-    private var aiActionsMenu: some View {
-        VStack(spacing: 8) {
-            Text("AI Actions")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            VStack(spacing: 4) {
-                ActionButton(title: "Continue Writing", icon: "pencil.line") { 
-                    print("Continue writing")
-                    onDismiss()
-                }
-                ActionButton(title: "Improve Text", icon: "wand.and.stars") { 
-                    print("Improve text")
-                    onDismiss()
-                }
-                ActionButton(title: "Summarize", icon: "text.alignleft") { 
-                    print("Summarize")
-                    onDismiss()
-                }
-                ActionButton(title: "Translate", icon: "globe") { 
-                    print("Translate")
-                    onDismiss()
-                }
-            }
-            
-            Button("Close") {
-                onDismiss()
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-}
-
-struct FormatButton: View {
-    let icon: String
-    let title: String
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.caption)
-                Text(title)
-                    .font(.caption2)
-            }
-            .frame(width: 60, height: 40)
-        }
-        .buttonStyle(.bordered)
-    }
-}
-
-struct ActionButton: View {
-    let title: String
-    let icon: String
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.body)
-                Text(title)
-                    .font(.body)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-        }
-        .buttonStyle(.bordered)
-    }
-}
-
-// MARK: - Cursor State Management
-
-class InteractiveCursorManager: ObservableObject {
-    @Published var isMenuVisible: Bool = false
-    @Published var currentMenuType: CursorMenuType = .promptInput
-    @Published var cursorPosition: CGPoint = .zero
-    @Published var isHovered: Bool = false
-    
-    func showMenu(type: CursorMenuType, at position: CGPoint) {
-        currentMenuType = type
-        cursorPosition = position
-        isMenuVisible = true
-    }
-    
-    func hideMenu() {
-        isMenuVisible = false
-    }
-}
-
 // --- NSViewRepresentable ---
 struct InlineSuggestingTextView: NSViewRepresentable {
     @Binding var text: String
@@ -832,7 +617,7 @@ class CustomInlineNSTextView: NSTextView {
     convenience override init(frame frameRect: NSRect) {
          // This now correctly calls the designated initializer of this class (CustomInlineNSTextView)
          // which will, in turn, call super.init(frame:textContainer:)
-         self.init(frame: frameRect, textContainer: nil) 
+         self.init(frame: frameRect, textContainer: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -861,13 +646,23 @@ class CustomInlineNSTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if hasGhostText() {
-            // If ghost text is present, any click dismisses it.
-            print("CustomInlineNSTextView.mouseDown: Ghost text present. Dismissing suggestion due to click.")
-            llmInteractionDelegate?.dismissSuggestion()
-            // The dismissSuggestion call will clear currentGhostTextRange.
-            // Subsequent calls to smartCaret.handleMouseDown and super.mouseDown
-            // will operate on the text view *after* ghost text has been cleared.
+        let point = convert(event.locationInWindow, from: nil)
+        let charIndex = characterIndexForInsertion(at: point)
+        
+        // Если есть ghost text и клик произошел в его области
+        if hasGhostText(), let ghostRange = currentGhostTextRange {
+            if charIndex >= ghostRange.location && charIndex <= NSMaxRange(ghostRange) {
+                // Клик в ghost text: перемещаем курсор в начало ghost text (конец committed text)
+                let newCursorPosition = ghostRange.location
+                self.selectedRange = NSRange(location: newCursorPosition, length: 0)
+                self.scrollRangeToVisible(self.selectedRange)
+                // Не вызываем dismissSuggestion, чтобы сохранить ghost text
+                // Пропускаем super.mouseDown, так как мы обработали событие
+                return
+            } else {
+                // Клик вне ghost text: очищаем ghost text
+                llmInteractionDelegate?.dismissSuggestion() // Это вызовет clearGhostText
+            }
         }
         smartCaret.handleMouseDown(event: event)
         super.mouseDown(with: event)
@@ -1140,6 +935,7 @@ class CustomInlineNSTextView: NSTextView {
     
     // Override selection methods to prevent ghost text selection
     override func setSelectedRange(_ charRange: NSRange) {
+        // Если пытаемся выделить ghost text, корректируем диапазон
         if let ghostRange = currentGhostTextRange {
             let adjustedRange = adjustSelectionRange(charRange, ghostRange: ghostRange)
             super.setSelectedRange(adjustedRange)
@@ -1147,26 +943,41 @@ class CustomInlineNSTextView: NSTextView {
             super.setSelectedRange(charRange)
         }
     }
-
+    
+    override func selectAll(_ sender: Any?) {
+        if hasGhostText(), let ghostRange = currentGhostTextRange {
+            // Выделяем только committed text (до начала ghost text)
+            let committedTextRange = NSRange(location: 0, length: ghostRange.location)
+            self.setSelectedRange(committedTextRange)
+            // Очищаем ghost text
+            llmInteractionDelegate?.dismissSuggestion()
+        } else {
+            // Если нет ghost text, выполняем стандартное выделение всего текста
+            super.selectAll(sender)
+        }
+    }
+    
+    // Helper method to adjust selection to avoid ghost text
     private func adjustSelectionRange(_ range: NSRange, ghostRange: NSRange) -> NSRange {
         let rangeEnd = NSMaxRange(range)
         let ghostEnd = NSMaxRange(ghostRange)
         
-        // Если выделение начинается внутри ghost text
-        if range.location >= ghostRange.location && range.location < ghostEnd {
-            // Перемещаем курсор в начало ghost text
+        // Если выделение полностью внутри ghost text
+        if range.location >= ghostRange.location && rangeEnd <= ghostEnd {
+            // Схлопываем выделение до курсора в начале ghost text
             return NSRange(location: ghostRange.location, length: 0)
         }
         
-        // Если выделение пересекает ghost text
+        // Если выделение начинается до ghost text, но заканчивается внутри или после него
         if range.location < ghostRange.location && rangeEnd > ghostRange.location {
             // Обрезаем выделение до начала ghost text
             return NSRange(location: range.location, length: ghostRange.location - range.location)
         }
         
-        // Если выделение полностью вне ghost text, оставляем как есть
+        // Если выделение полностью вне ghost text (до или после), оставляем как есть
         return range
     }
+    
     
     // Helper method to get character index for mouse position
     internal override func characterIndexForInsertion(at point: NSPoint) -> Int {
@@ -1293,4 +1104,3 @@ let kVK_Tab: UInt16 = 0x30
 let kVK_RightArrow: UInt16 = 0x7C
 let kVK_Escape: UInt16 = 0x35
 #endif
-
