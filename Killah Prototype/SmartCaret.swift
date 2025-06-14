@@ -2,199 +2,301 @@ import SwiftUI
 import AppKit
 import QuartzCore
 
+// MARK: - Audio Waveform Component
+
+struct AudioWaveform: View {
+    @State private var isAnimating = false
+    
+    var body: some View {
+        HStack(spacing: 1) {
+            ForEach(0..<20, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 0.5)
+                    .fill(Color.blue.opacity(0.6))
+                    .frame(width: 2, height: waveHeight(for: index))
+                    .scaleEffect(y: isAnimating ? 1.0 : 0.3)
+                    .animation(
+                        .easeInOut(duration: 0.6)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(index) * 0.05),
+                        value: isAnimating
+                    )
+            }
+        }
+        .onAppear {
+            isAnimating = true
+        }
+    }
+    
+    private func waveHeight(for index: Int) -> CGFloat {
+        let heights: [CGFloat] = [4, 8, 12, 16, 20, 16, 12, 8, 4, 6, 10, 14, 18, 14, 10, 6, 4, 8, 12, 8]
+        return heights[index % heights.count]
+    }
+}
+
 // MARK: - Interactive Cursor SwiftUI Components
 
-enum CursorMenuType {
-    case promptInput
-    case audioRecording
-    case textFormatting
-    case aiActions
+enum CursorMenuState {
+    case inactive
+    case promptHover
+    case recordHover
+    case promptTap
+    case recordTap
+    case promptEnter
+    case promptAnswer
+    case promptHistory
+    case promptLarge
+    case recordLarge
 }
 
 struct CursorMenu: View {
-    let menuType: CursorMenuType
-    let onDismiss: () -> Void
-    @State private var promptText: String = ""
-    @State private var isRecording: Bool = false
+    var state: CursorMenuState
+    @State private var inputText: String = ""
+    @State private var isHovered: Bool = false
+    @State private var isVisible: Bool = false
     
     var body: some View {
-        VStack(spacing: 12) {
-            switch menuType {
-            case .promptInput:
-                promptInputMenu
-            case .audioRecording:
-                audioRecordingMenu
-            case .textFormatting:
-                textFormattingMenu
-            case .aiActions:
-                aiActionsMenu
-            }
-        }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-    }
-    
-    private var promptInputMenu: some View {
-        VStack(spacing: 8) {
-            Text("AI Prompt")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            TextField("Enter your prompt...", text: $promptText)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 250)
-            
-            HStack(spacing: 8) {
-                Button("Cancel") {
-                    onDismiss()
-                }
-                .buttonStyle(.bordered)
-                
-                Button("Generate") {
-                    // Handle prompt generation
-                    print("Generating with prompt: \(promptText)")
-                    onDismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(promptText.isEmpty)
-            }
-        }
-    }
-    
-    private var audioRecordingMenu: some View {
-        VStack(spacing: 8) {
-            Text("Voice Input")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            Button(action: {
-                isRecording.toggle()
-            }) {
-                HStack {
-                    Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                        .font(.title)
-                        .foregroundColor(isRecording ? .red : .blue)
-                    
-                    Text(isRecording ? "Stop Recording" : "Start Recording")
-                        .font(.body)
-                }
-            }
-            .buttonStyle(.bordered)
-            
-            if isRecording {
-                HStack {
+        Group {
+            switch state {
+            case .inactive:
+                Rectangle()
+                    .fill(Color.red)
+                    .frame(width: 2, height: 24)
+                    .opacity(isVisible ? 1.0 : 0.0)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isVisible = true
+                        }
+                    }
+            case .promptHover:
+                HStack(spacing: 4) {
                     Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
-                        .opacity(0.8)
+                        .fill(Color.red)
+                        .frame(width: 20, height: 20)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.blue.opacity(0.2))
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        .frame(width: 80, height: 24)
+                        .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .leading)
+                        .opacity(isVisible ? 1.0 : 0.0)
+                }
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
+                }
+            case .recordHover:
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.blue.opacity(0.2))
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        .frame(width: 40, height: 24)
+                        .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .trailing)
+                        .opacity(isVisible ? 1.0 : 0.0)
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 20, height: 20)
+                }
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
+                }
+            case .promptTap:
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 20, height: 20)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.blue.opacity(0.2))
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        .frame(width: 280, height: 24)
+                        .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .leading)
+                        .opacity(isVisible ? 1.0 : 0.0)
+                }
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
+                }
+            case .recordTap:
+                VStack(spacing: 8) {
+                    // Pause button at top
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.red)
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            HStack(spacing: 3) {
+                                Rectangle()
+                                    .fill(Color.white)
+                                    .frame(width: 3, height: 12)
+                                Rectangle()
+                                    .fill(Color.white)
+                                    .frame(width: 3, height: 12)
+                            }
+                        )
+                        .scaleEffect(isVisible ? 1.0 : 0.0)
+                        .opacity(isVisible ? 1.0 : 0.0)
                     
-                    Text("Recording...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    // Text with waveform
+                    HStack(spacing: 8) {
+                        Text("hello world")
+                            .foregroundColor(.primary)
+                            .font(.system(size: 14))
+                        AudioWaveform()
+                            .frame(width: 160, height: 24)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 24, height: 24)
+                    }
+                    .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .leading)
+                    .opacity(isVisible ? 1.0 : 0.0)
+                    
+                    // Red square record button at bottom
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.red)
+                        .frame(width: 24, height: 24)
+                        .scaleEffect(isVisible ? 1.0 : 0.0)
+                        .opacity(isVisible ? 1.0 : 0.0)
                 }
-            }
-            
-            Button("Close") {
-                onDismiss()
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-    
-    private var textFormattingMenu: some View {
-        VStack(spacing: 8) {
-            Text("Text Formatting")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
-                FormatButton(icon: "bold", title: "Bold") { /* Handle bold */ }
-                FormatButton(icon: "italic", title: "Italic") { /* Handle italic */ }
-                FormatButton(icon: "underline", title: "Underline") { /* Handle underline */ }
-                FormatButton(icon: "list.bullet", title: "Bullets") { /* Handle bullets */ }
-                FormatButton(icon: "list.number", title: "Numbers") { /* Handle numbers */ }
-                FormatButton(icon: "highlighter", title: "Highlight") { /* Handle highlight */ }
-            }
-            
-            Button("Close") {
-                onDismiss()
-            }
-            .buttonStyle(.bordered)
-        }
-    }
-    
-    private var aiActionsMenu: some View {
-        VStack(spacing: 8) {
-            Text("AI Actions")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            VStack(spacing: 4) {
-                ActionButton(title: "Continue Writing", icon: "pencil.line") {
-                    print("Continue writing")
-                    onDismiss()
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
                 }
-                ActionButton(title: "Improve Text", icon: "wand.and.stars") {
-                    print("Improve text")
-                    onDismiss()
+            case .promptEnter:
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.blue.opacity(0.1))
+                    .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                    .frame(width: 200, height: 120)
+                    .overlay(
+                        TextEditor(text: $inputText)
+                            .padding(8)
+                            .background(Color.clear)
+                            .font(.system(size: 14))
+                    )
+                    .scaleEffect(isVisible ? 1.0 : 0.0, anchor: .topLeading)
+                    .opacity(isVisible ? 1.0 : 0.0)
+                    .onAppear {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            isVisible = true
+                        }
+                    }
+            case .promptAnswer:
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 20, height: 20)
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.blue.opacity(0.2))
+                            .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                            .frame(width: 80, height: 24)
+                            .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .leading)
+                            .opacity(isVisible ? 1.0 : 0.0)
+                    }
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.blue.opacity(0.1))
+                        .stroke(Color.blue.opacity(0.2), lineWidth: 1)
+                        .frame(width: 280, height: 80)
+                        .scaleEffect(isVisible ? 1.0 : 0.0, anchor: .topLeading)
+                        .opacity(isVisible ? 1.0 : 0.0)
                 }
-                ActionButton(title: "Summarize", icon: "text.alignleft") {
-                    print("Summarize")
-                    onDismiss()
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
                 }
-                ActionButton(title: "Translate", icon: "globe") {
-                    print("Translate")
-                    onDismiss()
+            case .promptHistory:
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 20, height: 20)
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.blue.opacity(0.2))
+                            .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                            .frame(width: 80, height: 24)
+                            .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .leading)
+                            .opacity(isVisible ? 1.0 : 0.0)
+                    }
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.gray.opacity(0.1))
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                        .frame(width: 280, height: 100)
+                        .scaleEffect(isVisible ? 1.0 : 0.0, anchor: .topLeading)
+                        .opacity(isVisible ? 1.0 : 0.0)
                 }
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
+                }
+            case .promptLarge:
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 20, height: 20)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.blue.opacity(0.2))
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        .frame(width: 320, height: 24)
+                        .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .leading)
+                        .opacity(isVisible ? 1.0 : 0.0)
+                }
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
+                }
+            case .recordLarge:
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 24, height: 24)
+                        .scaleEffect(isVisible ? 1.0 : 0.0)
+                        .opacity(isVisible ? 1.0 : 0.0)
+                    AudioWaveform()
+                        .frame(width: 200, height: 24)
+                        .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .trailing)
+                        .opacity(isVisible ? 1.0 : 0.0)
+                    Text("hello world")
+                        .foregroundColor(.primary)
+                        .font(.system(size: 14))
+                }
+                .onAppear {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isVisible = true
+                    }
+                }
+            default:
+                TextField("Enter text...", text: $inputText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .padding(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white.opacity(0.3))
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .blur(radius: 10)
+                    )
+                    .shadow(color: Color.black.opacity(0.1), radius: 0, x: 0, y: 2)
+                    .frame(
+                        width: isHovered ? 400 : 100,
+                        height: 32
+                    )
+                    .scaleEffect(x: isVisible ? 1.0 : 0.0, y: 1.0, anchor: .leading)
+                    .opacity(isVisible ? 1.0 : 0.0)
+                    .onHover { hovering in
+                        withAnimation(.bouncy(duration: 0.4)) {
+                            isHovered = hovering
+                        }
+                    }
+                    .onAppear {
+                        withAnimation(.bouncy(duration: 0.6)) {
+                            isVisible = true
+                        }
+                    }
             }
-            
-            Button("Close") {
-                onDismiss()
-            }
-            .buttonStyle(.bordered)
         }
-    }
-}
-
-struct FormatButton: View {
-    let icon: String
-    let title: String
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.caption)
-                Text(title)
-                    .font(.caption2)
-            }
-            .frame(width: 60, height: 40)
-        }
-        .buttonStyle(.bordered)
-    }
-}
-
-struct ActionButton: View {
-    let title: String
-    let icon: String
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.body)
-                Text(title)
-                    .font(.body)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-        }
-        .buttonStyle(.bordered)
     }
 }
 
@@ -202,12 +304,10 @@ struct ActionButton: View {
 
 class InteractiveCursorManager: ObservableObject {
     @Published var isMenuVisible: Bool = false
-    @Published var currentMenuType: CursorMenuType = .promptInput
     @Published var cursorPosition: CGPoint = .zero
     @Published var isHovered: Bool = false
     
-    func showMenu(type: CursorMenuType, at position: CGPoint) {
-        currentMenuType = type
+    func showMenu(at position: CGPoint) {
         cursorPosition = position
         isMenuVisible = true
     }
@@ -227,6 +327,7 @@ class SmartCaret {
     private var menuHostingView: NSHostingView<CursorMenu>?
     private var cursorManager = InteractiveCursorManager()
     private var cursorUpdateTimer: Timer?
+    private var menuState: CursorMenuState = .inactive
     
     init(textView: CustomInlineNSTextView) {
         self.textView = textView
@@ -246,7 +347,7 @@ class SmartCaret {
     /// Create and add the caret layer to the text view's layer.
     private func setupCursorLayer(in view: CustomInlineNSTextView) {
         let layer = CALayer()
-        layer.backgroundColor = NSColor.systemBlue.cgColor
+        layer.backgroundColor = NSColor.systemRed.cgColor
         layer.cornerRadius = 1.0
         layer.opacity = 1.0
         view.layer?.addSublayer(layer)
@@ -293,10 +394,11 @@ class SmartCaret {
         let viewRect = view.convert(windowRect, from: nil)
 
         let width = cursorManager.isHovered ? 3.0 : 2.0
+        let height: CGFloat = 24.0 // Fixed height to match the design
         let frame = CGRect(x: viewRect.minX,
-                           y: viewRect.minY,
+                           y: viewRect.minY + (viewRect.height - height) / 2, // Center vertically
                            width: width,
-                           height: viewRect.height)
+                           height: height)
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.1)
         layer.frame = frame
@@ -309,10 +411,10 @@ class SmartCaret {
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.2)
         if cursorManager.isHovered {
-            layer.backgroundColor = NSColor.systemOrange.cgColor
-            layer.transform = CATransform3DMakeScale(1.2, 1.0, 1.0)
+            layer.backgroundColor = NSColor.systemRed.cgColor
+            layer.transform = CATransform3DMakeScale(1.5, 1.0, 1.0)
         } else {
-            layer.backgroundColor = NSColor.systemBlue.cgColor
+            layer.backgroundColor = NSColor.systemRed.cgColor
             layer.transform = CATransform3DIdentity
         }
         CATransaction.commit()
@@ -328,7 +430,9 @@ class SmartCaret {
             if cursorManager.isMenuVisible {
                 hideMenu()
             } else {
-                showMenu(event: event)
+                // Определяем, с какой стороны от курсора был клик
+                let isOnLeftSide = local.x < layer.frame.midX
+                showMenu(event: event, isPromptSide: !isOnLeftSide)
             }
         } else {
             hideMenu()
@@ -336,61 +440,124 @@ class SmartCaret {
     }
     
     /// Show the SwiftUI menu at the caret location.
-    private func showMenu(event: NSEvent) {
-        guard let view = textView else { return }
-        let menuType: CursorMenuType
-        if event.modifierFlags.contains(.command) {
-            menuType = .aiActions
-        } else if event.modifierFlags.contains(.option) {
-            menuType = .audioRecording
-        } else if event.modifierFlags.contains(.shift) {
-            menuType = .textFormatting
-        } else {
-            menuType = .promptInput
-        }
+    private func showMenu(event: NSEvent, isPromptSide: Bool = true) {
+        guard let view = textView, let caretLayer = interactiveCursorLayer else { return }
+        
         hideMenu()
-        let menu = CursorMenu(menuType: menuType) { [weak self] in self?.hideMenu() }
+        
+        // Determine state: promptTap if prompt side, else recordTap
+        let selectedState: CursorMenuState = isPromptSide ? .promptTap : .recordTap
+        let menu = CursorMenu(state: selectedState)
         let host = NSHostingView(rootView: menu)
         host.translatesAutoresizingMaskIntoConstraints = false
+        
         view.superview?.addSubview(host)
-        let posInWindow = view.convert(layerPosition(), to: nil)
-        host.frame = CGRect(x: posInWindow.x + 20,
-                            y: posInWindow.y - 50,
-                            width: 280, height: 200)
-        host.alphaValue = 0.0
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.3
-            ctx.allowsImplicitAnimation = true
-            host.alphaValue = 1.0
+        
+        let caretFrameInView = caretLayer.frame
+        let caretRectInWindow = view.convert(caretFrameInView, to: nil)
+        let hostTargetSuperview = view.superview ?? view
+        let caretRectInSuperview = hostTargetSuperview.convert(caretRectInWindow, from: nil)
+
+        // Adjust sizes based on state
+        let menuHeight: CGFloat = selectedState == .recordTap ? 100 : 24
+        let menuWidth: CGFloat = selectedState == .promptTap ? 320 : 280
+        
+        let menuX: CGFloat
+        if isPromptSide {
+            // Prompt справа от курсора
+            menuX = caretRectInSuperview.maxX + 8
+        } else {
+            // Record слева от курсора
+            menuX = caretRectInSuperview.minX - menuWidth - 8
         }
+        
+        let menuY = caretRectInSuperview.midY - (menuHeight / 2)
+        
+        // Just set the frame, let SwiftUI handle all animations
+        host.frame = CGRect(x: menuX, y: menuY, width: menuWidth, height: menuHeight)
+        
         menuHostingView = host
-        cursorManager.showMenu(type: menuType, at: layerPosition())
+        cursorManager.showMenu(at: layerPosition())
     }
     
     /// Hide and remove the menu.
     private func hideMenu() {
         guard let host = menuHostingView else { return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.2
-            ctx.allowsImplicitAnimation = true
-            host.alphaValue = 0.0
-        }) {
-            host.removeFromSuperview()
-        }
+        
+        // Simply remove without NSView animations that cause conflicts
+        host.removeFromSuperview()
+        
         cursorManager.hideMenu()
         menuHostingView = nil
     }
     
-    /// Check for hover updates on mouse moved.
+    /// Show hover menu without an event, using current caret position.
+    private func showHoverMenu(isPromptSide: Bool = true) {
+        guard let view = textView, let caretLayer = interactiveCursorLayer else { return }
+        hideMenu()
+        menuState = isPromptSide ? .promptHover : .recordHover
+        let menu = CursorMenu(state: menuState)
+        let host = NSHostingView(rootView: menu)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        view.superview?.addSubview(host)
+        let caretFrameInView = caretLayer.frame
+        let caretRectInWindow = view.convert(caretFrameInView, to: nil)
+        let hostTargetSuperview = view.superview ?? view
+        let caretRectInSuperview = hostTargetSuperview.convert(caretRectInWindow, from: nil)
+        let menuHeight: CGFloat = 24
+        let menuWidth: CGFloat = isPromptSide ? 120 : 80
+        
+        let menuX: CGFloat
+        if isPromptSide {
+            // Prompt поле справа от курсора
+            menuX = caretRectInSuperview.maxX + 8
+        } else {
+            // Record поле слева от курсора
+            menuX = caretRectInSuperview.minX - menuWidth - 8
+        }
+        
+        let menuY = caretRectInSuperview.midY - (menuHeight / 2)
+        host.frame = CGRect(x: menuX, y: menuY, width: menuWidth, height: menuHeight)
+        menuHostingView = host
+        cursorManager.showMenu(at: layerPosition())
+    }
+
     func handleMouseMoved(event: NSEvent) {
-        guard let view = textView else { return }
-        let local = view.convert(event.locationInWindow, from: nil)
-        guard let layer = interactiveCursorLayer else { return }
+        guard let view = textView, let layer = interactiveCursorLayer else { return }
+        let windowPoint = event.locationInWindow
+        // If menu is visible, check if pointer is over menu or buffer zone between caret and menu
+        if let host = menuHostingView {
+            // Over menu itself
+            let pointInHost = host.convert(windowPoint, from: nil)
+            if host.bounds.contains(pointInHost) {
+                return
+            }
+            // Buffer zone between caret and menu
+            let caretRectInView = layer.frame
+            let caretRectInWindow = view.convert(caretRectInView, to: nil)
+            let hostSuperview = view.superview ?? view
+            let caretRectInSuper = hostSuperview.convert(caretRectInWindow, from: nil)
+            let menuFrame = host.frame
+            let bufferRect = caretRectInSuper.union(menuFrame).insetBy(dx: -8, dy: -8)
+            let pointInSuper = hostSuperview.convert(windowPoint, from: nil)
+            if bufferRect.contains(pointInSuper) {
+                return
+            }
+        }
+        // Convert event point into text view coordinates
+        let local = view.convert(windowPoint, from: nil)
         let hoverArea = layer.frame.insetBy(dx: -10, dy: -5)
-        let was = cursorManager.isHovered
+        let wasHovered = cursorManager.isHovered
         cursorManager.isHovered = hoverArea.contains(local)
-        if was != cursorManager.isHovered {
+        if wasHovered != cursorManager.isHovered {
             updateAppearance()
+            if cursorManager.isHovered {
+                // Determine side relative to cursor
+                let isOnLeftSide = local.x < layer.frame.midX
+                showHoverMenu(isPromptSide: !isOnLeftSide)
+            } else {
+                hideMenu()
+            }
         }
     }
     
@@ -404,6 +571,7 @@ class SmartCaret {
         if let area = cursorTrackingArea, let view = textView {
             view.removeTrackingArea(area)
         }
+        interactiveCursorLayer?.removeFromSuperlayer()
         hideMenu()
     }
 }
