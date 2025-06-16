@@ -131,9 +131,9 @@ Direct Preference Optimization integration runs throughout this process, ensurin
 
 **Audio Processing Stack:**
 
-Audio processing begins with a pre-trained Conformer model that handles raw audio input, converting acoustic signals into audio embeddings: $[\vec{a}_1, \vec{a}_2, ..., \vec{a}_N]$ where each $\vec{a}_i \in \mathbb{R}^{d_{audio}}$.
+Audio processing begins with a pre-trained Conformer model that handles raw audio input, converting acoustic signals into audio embeddings: $[\vec{a}_1, \vec{a}_2, ..., \vec{a}_N]$ where each $\(\vec{a}_i \in \mathbb{R}^{d_{\text{audio}}}\)$.
 
-These audio embeddings then pass through a projection layer—an MLP that bridges the audio space to our persona-conditioned text space, transforming each $\vec{a}_i$ into $\vec{e}_i \in \mathbb{R}^{d_{LLM}}$ that the language model can understand.
+These audio embeddings then pass through a projection layer—an MLP that bridges the audio space to our persona-conditioned text space, transforming each $\vec{a}_i$ into $\(\vec{e}_i \in \mathbb{R}^{d_{\text{LLM}}}\)$ that the language model can understand.
 
 The key innovation here is persona integration throughout the audio understanding process. Rather than treating audio as a separate modality, our `Persona_Audio_LoRA` ensures that audio understanding is conditioned on the user's communication patterns and voice characteristics from the ground up.
 
