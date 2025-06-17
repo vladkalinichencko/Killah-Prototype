@@ -10,25 +10,25 @@ import AppKit
 
 @main
 struct Killah_PrototypeApp: App {
-    // Removed AppDelegate; using DocumentGroup for document-based behavior
-    
     var body: some Scene {
         DocumentGroup(newDocument: TextDocument()) { file in
             ContentView(document: file.$document)
+                .containerBackground(.regularMaterial, for: .window)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .onAppear {
                     if let window = NSApplication.shared.windows.first {
-                        window.titlebarAppearsTransparent = true
-                        window.titleVisibility = .visible
+                        window.styleMask.insert(.fullSizeContentView)
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
-                        window.standardWindowButton(.documentIconButton)?.isHidden = false
-                        window.minSize = NSSize(width: 600, height: 400)
-                        window.backgroundColor = NSColor.windowBackgroundColor
+                        window.backgroundColor = .clear
+                        window.isOpaque = false
+                        window.hasShadow = true
+                        window.titlebarAppearsTransparent = true
                     }
                 }
         }
+        .windowStyle(.automatic)
         .commands {
-            // Only override About and Format
             MenuCommands()
         }
     }

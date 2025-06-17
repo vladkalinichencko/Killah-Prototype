@@ -10,6 +10,22 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List, Optional
 from llama_cpp import Llama
 
+# Полностью подавляем логи llama_cpp
+os.environ["LLAMA_LOG_LEVEL"] = "0"  # Отключаем все логи
+os.environ["GGML_LOG_LEVEL"] = "0"   # Отключаем все логи
+import contextlib
+
+# Функция для подавления stderr во время загрузки модели
+@contextlib.contextmanager
+def suppress_stderr():
+    with open(os.devnull, "w") as devnull:
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stderr = old_stderr
+
 
 
 # Disable Metal Performance Shaders to avoid mach-O errors in app bundle
@@ -149,15 +165,15 @@ here = os.path.abspath(os.path.dirname(__file__))
 model_path = os.path.join(here, "gemma-3-4b-pt-q4_0.gguf")
 # Проверка наличия модели
 if not os.path.exists(model_path):
-    print(f"ERROR: Model directory not found at {model_path}", file=sys.stderr, flush=True)
-    print(f"Current directory: {here}", file=sys.stderr, flush=True)
-    print(f"Available files: {os.listdir(here) if os.path.exists(here) else 'Directory not found'}", file=sys.stderr, flush=True)
+    print(f"ERROR: Model not found at {model_path}", file=sys.stderr, flush=True)
     sys.exit(1)
 
 # Инициализация модели
 try:
-    print(f"Loading model from: {model_path}", file=sys.stderr, flush=True)
-    llm = Llama(model_path=model_path, n_ctx=512, n_threads=8, verbose=True)
+    # Подавляем все логи загрузки модели
+    with suppress_stderr():
+        llm = Llama(model_path=model_path, n_ctx=512, n_threads=8, verbose=False)
+    
     print("Model loaded successfully", file=sys.stderr, flush=True)
 except Exception as e:
     print(f"ERROR loading model: {e}", file=sys.stderr, flush=True)
@@ -165,9 +181,11 @@ except Exception as e:
 
 def generate_suggestions(prompt_text: str, persona_vector: Optional[List[float]] = None, max_suggestions: int = 1) -> List[str]:
     if not prompt_text.strip():
-        print("Empty prompt received, returning empty suggestions.", file=sys.stderr, flush=True)
         return []
     try:
+        # Логируем промпт на входе
+        print(f"PROMPT: {prompt_text}", file=sys.stderr, flush=True)
+        
         suggestions = []
         for _ in range(max_suggestions):
             output = llm(
@@ -182,6 +200,8 @@ def generate_suggestions(prompt_text: str, persona_vector: Optional[List[float]]
             )
             suggestion = output["choices"][0]["text"].strip().split("\n")[0]
             if suggestion and suggestion not in suggestions:
+                # Логируем каждый выходной токен/предложение
+                print(f"OUTPUT: {suggestion}", file=sys.stderr, flush=True)
                 suggestions.append(suggestion)
         print(f"Generated suggestions: {suggestions}", file=sys.stderr, flush=True)
         return suggestions

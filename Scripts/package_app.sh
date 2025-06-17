@@ -35,6 +35,7 @@ VENV_NAME="venv"
 # URL для скачивания предварительно собранного Python.framework
 PYTHON_FRAMEWORK_URL="https://github.com/python/cpython-bin-deps/releases/download/20231002/cpython-3.12.0%2B20231002-x86_64-apple-darwin-install_only.tar.gz"
 PYTHON_FRAMEWORK_LOCAL="/Library/Frameworks/Python.framework"
+MODEL_FILE_NAME="gemma-3-4b-pt-q4_0.gguf" # <--- ДОБАВЛЕНО: Имя файла модели
 
 # Пути сборки из Xcode (с резервными значениями для отладки)
 if [ -z "${BUILT_PRODUCTS_DIR:-}" ]; then
@@ -232,11 +233,22 @@ echo "✅ Зависимости установлены"
 # КОПИРОВАНИЕ РЕСУРСОВ
 # ===================================================================
 
-echo "📋 Копируем Python файлы..."
+echo "🖼️  Копируем ресурсы..."
+
+# Копируем модель LLM
+echo "🧠 Копируем модель LLM: $MODEL_FILE_NAME"
+cp "$PROJECT_DIR/Resources/$MODEL_FILE_NAME" "$RESOURCES_DIR/"
+echo "✅ Модель LLM скопирована"
+
+# Копируем скрипт автодополнения
+echo "🐍 Копируем скрипт автодополнения..."
 cp "$PROJECT_DIR/Resources/autocomplete.py" "$RESOURCES_DIR/"
-cp "$PROJECT_DIR/Resources/minillm_export.pt" "$RESOURCES_DIR/"
+echo "✅ Скрипт автодополнения скопирован"
+
+# Копируем requirements.txt для Python
+echo "📋 Копируем requirements.txt..."
 cp "$PROJECT_DIR/Resources/requirements.txt" "$RESOURCES_DIR/"
-echo "✅ Python файлы скопированы"
+echo "✅ requirements.txt скопирован"
 
 # ===================================================================
 # ИСПРАВЛЕНИЕ ПУТЕЙ И ПОДПИСЬ

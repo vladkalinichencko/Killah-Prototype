@@ -51,6 +51,7 @@ killah_venv/
 
 # Jupyter Notebooks
 Jupyter Notebooks/
+
 # Model
 Resources/gemma-3-4b-pt/
 Resources/gemma-3-4b-pt-q4_0.gguf
