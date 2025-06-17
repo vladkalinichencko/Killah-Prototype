@@ -39,33 +39,29 @@ struct ContentView: View {
     @StateObject private var llmEngine = LLMEngine()
     @State private var debouncer = Debouncer(delay: 0.5)
     @State private var textFormattingDelegate: TextFormattingDelegate?
-
+    
     var body: some View {
-        VStack {
-            // Floating Toolbar - теперь он вверху
-            FloatingToolbar(formattingDelegate: textFormattingDelegate)
-                .padding(.top, 10) // Убираем лишнее пространство, если нужно
-
-            Spacer()
-
-            // InlineSuggestingTextView с выравниванием по центру
+        ZStack(alignment: .top) {
+            // Фон, соответствующий титлбару
+            Color.clear
+                .background(.regularMaterial)
+                .ignoresSafeArea()
+            
             InlineSuggestingTextView(
                 text: $document.text,
                 llmEngine: llmEngine,
                 debouncer: $debouncer,
                 formattingDelegate: $textFormattingDelegate
             )
-            .frame(minHeight: 150, idealHeight: 300, maxHeight: .infinity)
-            .padding(.horizontal)
-            .background(Color(NSColor.windowBackgroundColor)) // Фон для текста
-            .cornerRadius(12)
             
-            Spacer()
+            // Floating toolbar with system white background
+            FloatingToolbar(formattingDelegate: textFormattingDelegate)
+                .zIndex(1)
+                .padding(.top, 10)
+                .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
         }
         .onAppear {
             llmEngine.startEngine()
         }
     }
 }
-
-
