@@ -51,3 +51,4 @@ Jupyter Notebooks/.venv
 # *.pth
 # Model
 Resources/gemma-3-4b-it/
+Resources/gemma-3-4b-pt-q4_0.gguf
