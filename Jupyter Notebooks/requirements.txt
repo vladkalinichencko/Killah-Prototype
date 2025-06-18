@@ -5,3 +5,11 @@ mlx
 protobuf
 ipywidgets
 optimum-quanto
+torchaudio
+tqdm
+bitsandbytes
+jiwer
+nltk
+scikit-learn
+soundfile
+rouge_score
