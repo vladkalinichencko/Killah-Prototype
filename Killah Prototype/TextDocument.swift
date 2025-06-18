@@ -7,7 +7,8 @@ struct TextDocument: FileDocument {
     var text: String
 
     init(text: String = "") {
-        self.text = text
+        let initialText = NSAttributedString(string: text, attributes: [.font: FontManager.shared.defaultEditorFont()])
+        self.text = initialText.string
     }
 
     init(configuration: ReadConfiguration) throws {
