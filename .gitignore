@@ -49,6 +49,12 @@ Jupyter Notebooks/.venv
 # PyTorch models
 # *.pt
 # *.pth
+
+# Model files only (not the whole Jupyter Notebooks folder)
+Jupyter Notebooks/*.pt
+Jupyter Notebooks/*.pth
+Jupyter Notebooks/*.gguf
+
 # Model
 Resources/gemma-3-4b-it/
 Resources/gemma-3-4b-pt-q4_0.gguf
