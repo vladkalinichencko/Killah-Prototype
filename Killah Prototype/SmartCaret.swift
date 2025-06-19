@@ -273,33 +273,43 @@ struct CaretPromptField: View {
 
 struct AudioWaveformView: View {
     @ObservedObject var coordinator: CaretUICoordinator
-    
-    private func barHeight(for index: Int) -> CGFloat {
-        let randomFactor = CGFloat.random(in: 0.8...1.2) // Add slight random variation
-        let baseHeight = coordinator.audioLevel * Float(coordinator.fixedMenuItemSize + 12)
-        return CGFloat(baseHeight) * randomFactor
-    }
-    
+    @State private var audioSamples: [Float] = Array(repeating: 0, count: 30)
+
+    private let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(0..<16, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 1)
-                    .frame(width: 2, height: barHeight(for: index))
-                    .animation(.easeInOut(duration: 0.1), value: coordinator.audioLevel)
+            ForEach(0..<audioSamples.count, id: \.self) { index in
+                let height = CGFloat(audioSamples[index]) * (coordinator.fixedMenuItemSize + 12)
+                RoundedRectangle(cornerRadius: 1.5)
+                    .frame(width: 3, height: max(2, height))
             }
         }
+        .frame(width: 150, height: coordinator.fixedMenuItemSize + 12, alignment: .trailing)
+        .clipped()
         .foregroundStyle(
             LinearGradient(
                 gradient: Gradient(colors: [Color.accentColor.opacity(0.7), Color.accentColor]),
-                startPoint: .leading,
-                endPoint: .trailing
+                startPoint: .bottom,
+                endPoint: .top
             )
         )
-        .frame(height: coordinator.fixedMenuItemSize + 12)
-        .padding(.horizontal, 12)
-        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 0)
-        .scaleEffect(x: coordinator.isRecording ? 1.0 : 0.1, anchor: .leading)
-        .offset(x: coordinator.isRecording ? 0 : -coordinator.caretButtonPadding)
+        .shadow(color: Color.accentColor.opacity(0.3), radius: 5, y: 2)
+        .onReceive(timer) { _ in
+            guard coordinator.isRecording && !coordinator.isPaused else { return }
+            
+            // Shift samples to the left
+            audioSamples.removeFirst()
+            // Add new sample at the end
+            let newSample = coordinator.audioLevel * Float.random(in: 0.7...1.3) // Add some variation
+            audioSamples.append(newSample)
+        }
+        .onAppear {
+            // Reset samples when the view appears
+            audioSamples = Array(repeating: 0, count: 30)
+        }
+        .scaleEffect(x: coordinator.isRecording ? 1.0 : 0.1, anchor: .trailing)
+        .offset(x: coordinator.isRecording ? 0 : coordinator.caretButtonPadding)
         .opacity(coordinator.isRecording ? 1.0 : 0.0)
         .animation(
             .spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
@@ -323,9 +333,9 @@ struct TranscriptionView: View {
             .shadow(color: .black.opacity(0.3), radius: 2, y: 1) // Text shadow for better readability
 
         return ZStack {
-            // Frosted glass background
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.ultraThinMaterial)
+            // Blur background, making the view itself blurry
+            VisualEffectBlur(blurStyle: .popover)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
@@ -357,19 +367,23 @@ struct TranscriptionView: View {
     }
 }
 
-extension View {
-    func onPressGesture(onPress: @escaping () -> Void, onRelease: @escaping () -> Void) -> some View {
-        self.simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    onPress()
-                }
-                .onEnded { _ in
-                    onRelease()
-                }
-        )
+struct VisualEffectBlur: NSViewRepresentable {
+    var blurStyle: NSVisualEffectView.Material
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.material = blurStyle
+        return view
     }
-    
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = blurStyle
+    }
+}
+
+extension View {
     func pointingHandCursor() -> some View {
         self.onHover { hovering in
             if hovering {
@@ -388,5 +402,17 @@ extension View {
                 NSCursor.pop()
             }
         }
+    }
+    
+    func onPressGesture(onPress: @escaping () -> Void, onRelease: @escaping () -> Void) -> some View {
+        self.simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    onPress()
+                }
+                .onEnded { _ in
+                    onRelease()
+                }
+        )
     }
 }

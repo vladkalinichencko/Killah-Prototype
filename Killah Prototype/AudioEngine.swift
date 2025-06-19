@@ -18,6 +18,13 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
 
+    // Timer for periodic transcription UI updates
+    private var fullTranscription: String = ""
+    private var transcriptionUpdateTimer: Timer?
+
+    // Use AVCaptureSession to trigger macOS microphone indicator
+    private var captureSession: AVCaptureSession?
+
     override init() {
         super.init()
         audioEngine = AVAudioEngine()
@@ -35,43 +42,74 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
                 }
             }
         }
-        
-        // Request microphone permission for macOS
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            print("Microphone permission already granted.")
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async {
-                    if granted {
-                        print("Microphone permission granted.")
-                    } else {
-                        print("Microphone permission denied.")
-                    }
+        // Setup AVCaptureSession for microphone indicator
+        setupCaptureSession()
+    }
+
+    /// Configure AVCaptureSession with audio input to show system mic indicator
+    private func setupCaptureSession() {
+        let session = AVCaptureSession()
+        session.beginConfiguration()
+        if let device = AVCaptureDevice.default(for: .audio) {
+            do {
+                let input = try AVCaptureDeviceInput(device: device)
+                if session.canAddInput(input) {
+                    session.addInput(input)
                 }
+            } catch {
+                print("Failed to create AVCaptureDeviceInput: \(error)")
             }
-        case .denied, .restricted:
-            print("Microphone permission has been denied or restricted.")
-        @unknown default:
-            // Handle future cases
-            break
         }
+        session.commitConfiguration()
+        captureSession = session
     }
 
     func startRecording() {
         guard !isRecording else { return }
-
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
-            print("Microphone permission has not been granted.")
-            return
+        print("Starting recording process...")
+        
+        // Force microphone permission request
+        requestMicrophonePermission { [weak self] granted in
+            if granted {
+                self?.performRecording()
+            } else {
+                print("Microphone permission denied")
+            }
         }
-
+    }
+    
+    private func requestMicrophonePermission(completion: @escaping (Bool) -> Void) {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .authorized:
+            completion(true)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                DispatchQueue.main.async {
+                    completion(granted)
+                }
+            }
+        case .denied, .restricted:
+            completion(false)
+        @unknown default:
+            completion(false)
+        }
+    }
+    
+    private func performRecording() {
+        print("Attempting to access microphone...")
+        // Start AVCaptureSession to trigger system mic indicator
+        captureSession?.startRunning()
+        
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+        
+        print("Audio format: \(recordingFormat)")
 
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else {
-            fatalError("Unable to create an SFSpeechAudioBufferRecognitionRequest object")
+            print("Failed to create recognition request")
+            return
         }
         recognitionRequest.shouldReportPartialResults = true
         if #available(macOS 13.0, *) {
@@ -80,36 +118,66 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
 
         recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
+            
+            if let error = error {
+                print("Recognition error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.stopRecording()
+                }
+                return
+            }
+            
             var isFinal = false
 
             if let result = result {
-                let bestTranscription = result.bestTranscription.formattedString
-                DispatchQueue.main.async {
-                    self.transcribedText = bestTranscription
-                }
+                // Update the full transcription string in the background
+                self.fullTranscription = result.bestTranscription.formattedString
                 isFinal = result.isFinal
             }
 
-            if error != nil || isFinal {
+            if isFinal {
+                print("Transcription completed")
+                self.updateDisplayedTranscription() // Perform one final update
                 self.stopRecording()
             }
         }
 
+        print("Installing tap on input node...")
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, when) in
             guard let self = self, !self.isPaused else { return }
+            
+            // Debug: Check if we're actually receiving audio data
+            if buffer.frameLength > 0 {
+                // print("Received audio buffer with \(buffer.frameLength) frames")
+            }
+            
             self.recognitionRequest?.append(buffer)
             self.updateAudioLevel(buffer: buffer)
         }
 
+        print("Starting audio engine...")
         do {
             try audioEngine.start()
+            print("Audio engine started successfully")
             DispatchQueue.main.async {
                 self.isRecording = true
                 self.isPaused = false
                 self.transcribedText = ""
+                self.fullTranscription = "" // Reset on start
+
+                // Invalidate any existing timer and start a new one
+                self.transcriptionUpdateTimer?.invalidate()
+                self.transcriptionUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+                    self?.updateDisplayedTranscription()
+                }
+                print("Recording state updated: isRecording = true")
             }
         } catch {
-            print("Could not start audio engine: \(error)")
+            print("Could not start audio engine: \(error.localizedDescription)")
+            if let nsError = error as NSError? {
+                print("Error domain: \(nsError.domain), code: \(nsError.code)")
+                print("User info: \(nsError.userInfo)")
+            }
             self.stopRecording()
         }
     }
@@ -117,6 +185,12 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     func stopRecording() {
         guard isRecording else { return }
 
+        transcriptionUpdateTimer?.invalidate()
+        transcriptionUpdateTimer = nil
+
+        // Stop AVCaptureSession to hide system mic indicator
+        captureSession?.stopRunning()
+        
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
 
@@ -154,7 +228,10 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     }
 
     private func updateAudioLevel(buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
+        guard let channelData = buffer.floatChannelData else { 
+            print("No channel data available")
+            return 
+        }
         let channelDataValue = channelData.pointee
         let channelDataValueArray = UnsafeBufferPointer(start: channelDataValue, count: Int(buffer.frameLength))
 
@@ -167,9 +244,25 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         var normalizedLevel = (avgPower - minDb) / (maxDb - minDb)
         normalizedLevel = max(0.0, min(1.0, normalizedLevel))
 
+        // Debug: Print audio level occasionally to verify we're getting data
+        if Int.random(in: 1...100) == 1 { // Print 1% of the time to avoid spam
+            print("Audio level: \(normalizedLevel), RMS: \(rms), Power: \(avgPower)")
+        }
+
         DispatchQueue.main.async {
             // Apply a smoothing factor to prevent jerky movements
             self.audioLevel = self.audioLevel * 0.8 + normalizedLevel * 0.2
+        }
+    }
+    
+    private func updateDisplayedTranscription() {
+        let words = fullTranscription.split(separator: " ")
+        let lastThreeWords = words.suffix(3).joined(separator: " ")
+        
+        DispatchQueue.main.async {
+            if self.transcribedText != lastThreeWords {
+                self.transcribedText = lastThreeWords
+            }
         }
     }
     
