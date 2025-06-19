@@ -36,7 +36,8 @@ protocol TextFormattingDelegate: AnyObject {
 
 struct ContentView: View {
     @Binding var document: TextDocument
-    @StateObject private var llmEngine = LLMEngine()
+    @EnvironmentObject var llmEngine: LLMEngine
+    @EnvironmentObject var audioEngine: AudioEngine
     @State private var debouncer = Debouncer(delay: 0.5)
     @State private var textFormattingDelegate: TextFormattingDelegate?
     
@@ -50,6 +51,7 @@ struct ContentView: View {
             InlineSuggestingTextView(
                 text: $document.text,
                 llmEngine: llmEngine,
+                audioEngine: audioEngine,
                 debouncer: $debouncer,
                 formattingDelegate: $textFormattingDelegate
             )

@@ -17,6 +17,12 @@ class CaretUICoordinator: ObservableObject {
     @Published var promptText: String = ""
     @Published var isPromptFieldHovered: Bool = false
     
+    @Published var isRecording: Bool = false
+    @Published var isPaused: Bool = false
+    @Published var transcribedText: String = ""
+    @Published var audioLevel: Float = 0.0
+
+    private var audioEngine: AudioEngine
     private let fontManager = FontManager.shared
     private var cancellables = Set<AnyCancellable>()
     
@@ -29,6 +35,39 @@ class CaretUICoordinator: ObservableObject {
     var fixedPromptFieldFontSize: CGFloat { fontManager.promptFieldFontSize }
 
     var caretButtonPadding: CGFloat = 24
+
+    init(audioEngine: AudioEngine) {
+        self.audioEngine = audioEngine
+
+        // Bind AudioEngine properties to CaretUICoordinator properties
+        audioEngine.$isRecording
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isRecording in
+                self?.isRecording = isRecording
+            }
+            .store(in: &cancellables)
+
+        audioEngine.$isPaused
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isPaused in
+                self?.isPaused = isPaused
+            }
+            .store(in: &cancellables)
+
+        audioEngine.$transcribedText
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] text in
+                self?.transcribedText = text
+            }
+            .store(in: &cancellables)
+
+        audioEngine.$audioLevel
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] level in
+                self?.audioLevel = level
+            }
+            .store(in: &cancellables)
+    }
 
     func updateCaretPosition(for textView: NSTextView, at charIndex: Int? = nil) {
         let currentInsertionPoint: Int
@@ -87,13 +126,23 @@ class CaretUICoordinator: ObservableObject {
     }
     
     func collapseUI() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isExpanded = false
-        }
+        setExpanded(false)
+    }
+    
+    func startRecording() {
+        audioEngine.startRecording()
+    }
+    
+    func stopRecording() {
+        audioEngine.stopRecording()
+    }
+    
+    func togglePause() {
+        audioEngine.togglePause()
     }
     
     var caretColor: Color {
-        if isCaretPressed {
+        if isRecording {
             return Color.red.opacity(0.7)
         } else if isCaretHovered {
             return Color.red
@@ -201,8 +250,7 @@ class CaretUICoordinator: ObservableObject {
     }
     
     var promptFieldWidthOffset: CGFloat {
-        let widthDifference = expandedPromptFieldWidth - basePromptFieldWidth
-        return CGFloat(isPromptFieldExpanded ? (widthDifference / 2) : 0)
+        isPromptFieldExpanded ? (expandedPromptFieldWidth - basePromptFieldWidth) / 2 : 0
     }
     
     func createCaretOverlay() -> NonResponderHostingView<SmartCaretView> {
@@ -218,8 +266,58 @@ class CaretUICoordinator: ObservableObject {
     }
     
     func createPromptFieldOverlay() -> NonResponderHostingView<CaretPromptField> {
-        let overlay = NonResponderHostingView(rootView: CaretPromptField(coordinator: self))
-        overlay.translatesAutoresizingMaskIntoConstraints = true
-        return overlay
+        let view = CaretPromptField(coordinator: self)
+        let hostingView = NonResponderHostingView(rootView: view)
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        return hostingView
+    }
+    
+    func pauseButtonFrame() -> CGRect {
+        return CGRect(
+            x: caretPosition.x - fixedMenuItemSize / 2,
+            y: caretPosition.y - fixedMenuItemSize / 2 - caretButtonPadding,
+            width: fixedMenuItemSize,
+            height: fixedMenuItemSize
+        )
+    }
+    
+    func stopButtonFrame() -> CGRect {
+        let x = caretPosition.x - (fixedMenuItemSize) / 2
+        let y = caretPosition.y + caretButtonPadding
+        return CGRect(x: x, y: y, width: fixedMenuItemSize, height: fixedMenuItemSize)
+    }
+    
+    func audioWaveformFrame() -> CGRect {
+        let width: CGFloat = 150
+        let x = caretPosition.x + caretButtonPadding
+        let y = caretPosition.y - (fixedMenuItemSize + 12) / 2
+        return CGRect(x: x, y: y, width: width, height: fixedMenuItemSize + 12)
+    }
+    
+    func transcriptionFrame() -> CGRect {
+        let width: CGFloat = 150
+        let x = caretPosition.x - width - caretButtonPadding
+        let y = caretPosition.y - (fixedMenuItemSize + 12) / 2
+        return CGRect(x: x, y: y, width: width, height: fixedMenuItemSize + 12)
+    }
+    
+    func createPauseButtonOverlay() -> NonResponderHostingView<CaretPauseButton> {
+        let view = CaretPauseButton(coordinator: self)
+        return NonResponderHostingView(rootView: view)
+    }
+    
+    func createStopButtonOverlay() -> NonResponderHostingView<CaretStopButton> {
+        let view = CaretStopButton(coordinator: self)
+        return NonResponderHostingView(rootView: view)
+    }
+    
+    func createAudioWaveformOverlay() -> NonResponderHostingView<AudioWaveformView> {
+        let view = AudioWaveformView(coordinator: self)
+        return NonResponderHostingView(rootView: view)
+    }
+    
+    func createTranscriptionOverlay() -> NonResponderHostingView<TranscriptionView> {
+        let view = TranscriptionView(coordinator: self)
+        return NonResponderHostingView(rootView: view)
     }
 }

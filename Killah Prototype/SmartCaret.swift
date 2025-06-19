@@ -66,7 +66,7 @@ struct CaretRecordButton: View {
                 )
 
             Button(action: {
-                print("Запись аудио...")
+                coordinator.startRecording()
             }) {
                 Circle()
                     .fill(Color.red)
@@ -96,15 +96,123 @@ struct CaretRecordButton: View {
             height: coordinator.fixedMenuItemSize + 12
         )
         .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 3)
-        .scaleEffect(x: coordinator.isExpanded ? 1.0 : 0.1, anchor: .trailing)
-        .offset(x: coordinator.isExpanded ? 0 : coordinator.caretButtonPadding)
-        .opacity(coordinator.isExpanded ? 1.0 : 0.0)
+        .scaleEffect(x: coordinator.isExpanded && !coordinator.isRecording ? 1.0 : 0.1, anchor: .trailing)
+        .offset(x: coordinator.isExpanded && !coordinator.isRecording ? 0 : coordinator.caretButtonPadding)
+        .opacity(coordinator.isExpanded && !coordinator.isRecording ? 1.0 : 0.0)
         .animation(
             .spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), 
             value: coordinator.isExpanded
         )
+        .animation(
+            .spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), 
+            value: coordinator.isRecording
+        )
         .pointingHandCursor()
-        .allowsHitTesting(coordinator.isExpanded)
+        .allowsHitTesting(coordinator.isExpanded && !coordinator.isRecording)
+    }
+}
+
+struct CaretPauseButton: View {
+    @ObservedObject var coordinator: CaretUICoordinator
+    @State private var isPressed = false
+    
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
+                )
+
+            Button(action: {
+                coordinator.togglePause()
+            }) {
+                Image(systemName: coordinator.isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: coordinator.fixedMenuItemSize * 0.5))
+                    .foregroundColor(.primary)
+                    .scaleEffect(isPressed ? 0.9 : 1.0)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .onPressGesture(
+                onPress: { 
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        isPressed = true 
+                    }
+                },
+                onRelease: { 
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        isPressed = false 
+                    }
+                }
+            )
+        }
+        .frame(
+            width: coordinator.fixedMenuItemSize + 12,
+            height: coordinator.fixedMenuItemSize + 12
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 3)
+        .scaleEffect(y: coordinator.isRecording ? 1.0 : 0.1, anchor: .bottom)
+        .offset(y: coordinator.isRecording ? 0 : -coordinator.caretButtonPadding)
+        .opacity(coordinator.isRecording ? 1.0 : 0.0)
+        .animation(
+            .interpolatingSpring(stiffness: 300, damping: 20).speed(1.5),
+            value: coordinator.isRecording
+        )
+        .pointingHandCursor()
+        .allowsHitTesting(coordinator.isRecording)
+    }
+}
+
+struct CaretStopButton: View {
+    @ObservedObject var coordinator: CaretUICoordinator
+    @State private var isPressed = false
+    
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
+                )
+
+            Button(action: {
+                coordinator.stopRecording()
+            }) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: coordinator.fixedMenuItemSize * 0.5))
+                    .foregroundColor(.red)
+                    .scaleEffect(isPressed ? 0.9 : 1.0)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .onPressGesture(
+                onPress: { 
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        isPressed = true 
+                    }
+                },
+                onRelease: { 
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        isPressed = false 
+                    }
+                }
+            )
+        }
+        .frame(
+            width: coordinator.fixedMenuItemSize + 12,
+            height: coordinator.fixedMenuItemSize + 12
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 3)
+        .scaleEffect(y: coordinator.isRecording ? 1.0 : 0.1, anchor: .top)
+        .offset(y: coordinator.isRecording ? 0 : coordinator.caretButtonPadding)
+        .opacity(coordinator.isRecording ? 1.0 : 0.0)
+        .animation(
+            .interpolatingSpring(stiffness: 300, damping: 20).speed(1.5),
+            value: coordinator.isRecording
+        )
+        .pointingHandCursor()
+        .allowsHitTesting(coordinator.isRecording)
     }
 }
 
@@ -130,13 +238,13 @@ struct CaretPromptField: View {
                     )
             )
             .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 3)
-            .scaleEffect(x: coordinator.isExpanded ? 1.0 : 0.1, anchor: .leading)
+            .scaleEffect(x: coordinator.isExpanded && !coordinator.isRecording ? 1.0 : 0.1, anchor: .leading)
             .offset(
-                x: coordinator.isExpanded
+                x: coordinator.isExpanded && !coordinator.isRecording
                     ? coordinator.promptFieldWidthOffset
                     : -coordinator.caretButtonPadding
             )
-            .opacity(coordinator.isExpanded ? 1.0 : 0.0)
+            .opacity(coordinator.isExpanded && !coordinator.isRecording ? 1.0 : 0.0)
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.2)) {
                     coordinator.isPromptFieldHovered = hovering
@@ -148,6 +256,10 @@ struct CaretPromptField: View {
                 value: coordinator.isExpanded
             )
             .animation(
+                .spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), 
+                value: coordinator.isRecording
+            )
+            .animation(
                 .easeInOut(duration: 0.2),
                 value: coordinator.promptText
             )
@@ -155,7 +267,93 @@ struct CaretPromptField: View {
                 .easeInOut(duration: 0.2),
                 value: coordinator.promptFieldWidth
             )
-            .allowsHitTesting(coordinator.isExpanded)
+            .allowsHitTesting(coordinator.isExpanded && !coordinator.isRecording)
+    }
+}
+
+struct AudioWaveformView: View {
+    @ObservedObject var coordinator: CaretUICoordinator
+    
+    private func barHeight(for index: Int) -> CGFloat {
+        let randomFactor = CGFloat.random(in: 0.8...1.2) // Add slight random variation
+        let baseHeight = coordinator.audioLevel * Float(coordinator.fixedMenuItemSize + 12)
+        return CGFloat(baseHeight) * randomFactor
+    }
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<16, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 1)
+                    .frame(width: 2, height: barHeight(for: index))
+                    .animation(.easeInOut(duration: 0.1), value: coordinator.audioLevel)
+            }
+        }
+        .foregroundStyle(
+            LinearGradient(
+                gradient: Gradient(colors: [Color.accentColor.opacity(0.7), Color.accentColor]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .frame(height: coordinator.fixedMenuItemSize + 12)
+        .padding(.horizontal, 12)
+        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 0)
+        .scaleEffect(x: coordinator.isRecording ? 1.0 : 0.1, anchor: .leading)
+        .offset(x: coordinator.isRecording ? 0 : -coordinator.caretButtonPadding)
+        .opacity(coordinator.isRecording ? 1.0 : 0.0)
+        .animation(
+            .spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
+            value: coordinator.isRecording
+        )
+        .allowsHitTesting(false)
+    }
+}
+
+struct TranscriptionView: View {
+    @ObservedObject var coordinator: CaretUICoordinator
+    
+    var body: some View {
+        let textView = Text(coordinator.transcribedText.isEmpty ? "Listening..." : coordinator.transcribedText)
+            .font(.system(size: coordinator.fixedPromptFieldFontSize))
+            .foregroundColor(.primary)
+            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: 150, alignment: .trailing)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .shadow(color: .black.opacity(0.3), radius: 2, y: 1) // Text shadow for better readability
+
+        return ZStack {
+            // Frosted glass background
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
+                )
+
+            // Fading mask for the text
+            textView
+                .mask(
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: 0.2),
+                            .init(color: .black, location: 1.0)
+                        ]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        }
+        .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 4)
+        .scaleEffect(x: coordinator.isRecording ? 1.0 : 0.1, anchor: .trailing)
+        .offset(x: coordinator.isRecording ? 0 : coordinator.caretButtonPadding)
+        .opacity(coordinator.isRecording ? 1.0 : 0.0)
+        .animation(
+            .spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
+            value: coordinator.isRecording
+        )
+        .allowsHitTesting(false)
     }
 }
 
