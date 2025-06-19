@@ -1,7 +1,6 @@
-torch
+#torch
 transformers
 accelerate
-mlx
 protobuf
 ipywidgets
 optimum-quanto
