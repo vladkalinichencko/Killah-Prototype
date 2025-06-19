@@ -21,7 +21,7 @@
 		408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */ = {isa = PBXFileReference; lastKnownFileType = file; name = minillm_export.pt; path = Resources/minillm_export.pt; sourceTree = "<group>"; };
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		762198102DF5DAE6008D7F55 /* gemma-3-4b-it */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "gemma-3-4b-it"; path = "Resources/gemma-3-4b-it"; sourceTree = "<group>"; };
+		762198102DF5DAE6008D7F55 /* gemma-3-4b-it */ = {isa = PBXFileReference; lastKnownFileType = text; name = "gemma-3-4b-it"; path = "Resources/gemma-3-4b-it"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -306,7 +306,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 4Q826KG7YN;
+				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -327,7 +327,7 @@
 				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad-.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -349,7 +349,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 4Q826KG7YN;
+				DEVELOPMENT_TEAM = FK825CF827;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -370,7 +370,7 @@
 				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad-.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
