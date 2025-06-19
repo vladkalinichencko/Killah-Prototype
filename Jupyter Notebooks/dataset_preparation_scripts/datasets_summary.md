@@ -6,7 +6,7 @@
 - **Average tokens per sample:** 50.62  
 - **Approximate duration:** ~100 hours  
 - **Dataset size:** 10.7 GB
-- **language:** English
+- **Language:** English
 
 ---
 
@@ -16,7 +16,7 @@
 - **Average tokens per sample:** 11.99  
 - **Approximate duration:** ~78 hours  
 - **Dataset size:** 8.32 GB
-- **language:** Russian
+- **Language:** Russian
 
 ---
 
@@ -26,7 +26,7 @@
 - **Average tokens per sample:** 6.78  
 - **Approximate duration:** ~233 hours  
 - **Dataset size:** 27.5 GB
-- **language:** Russian
+- **Language:** Russian
 
 ---
 
@@ -36,4 +36,4 @@
 - **Average tokens per sample:** 4.00  
 - **Approximate duration:** ~1.56 hours  
 - **Dataset size:** 268 MB
-- **language:** English
+- **Language:** English
