@@ -13,3 +13,7 @@ nltk
 scikit-learn
 soundfile
 rouge_score
+matplotlib
+seaborn
+pandas
+huggingface_hub
