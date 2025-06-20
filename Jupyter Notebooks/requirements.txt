@@ -17,3 +17,4 @@ matplotlib
 seaborn
 pandas
 huggingface_hub
+wandb
