@@ -132,7 +132,7 @@ struct ToolbarButtonStyle: ButtonStyle {
     }
 }
 
-struct VisualEffectView: NSViewRepresentable {
+struct FloatingToolbarVisualEffectView: NSViewRepresentable {
     var material: NSVisualEffectView.Material
     var blendingMode: NSVisualEffectView.BlendingMode
 

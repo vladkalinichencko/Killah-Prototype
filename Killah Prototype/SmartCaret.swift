@@ -130,8 +130,9 @@ struct CaretPauseButton: View {
             }) {
                 Image(systemName: coordinator.isPaused ? "play.fill" : "pause.fill")
                     .font(.system(size: coordinator.fixedMenuItemSize * 0.5))
-                    .foregroundColor(.primary)
+                    .foregroundColor(.red)
                     .scaleEffect(isPressed ? 0.9 : 1.0)
+                    .shadow(color: Color.red.opacity(0.4), radius: 4, x: 0, y: 2)
             }
             .buttonStyle(PlainButtonStyle())
             .onPressGesture(
@@ -153,7 +154,7 @@ struct CaretPauseButton: View {
         )
         .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 3)
         .scaleEffect(y: coordinator.isRecording ? 1.0 : 0.1, anchor: .bottom)
-        .offset(y: coordinator.isRecording ? 0 : -coordinator.caretButtonPadding)
+        .offset(y: coordinator.isRecording ? -15 : -coordinator.caretButtonPadding)
         .opacity(coordinator.isRecording ? 1.0 : 0.0)
         .animation(
             .interpolatingSpring(stiffness: 300, damping: 20).speed(1.5),
@@ -184,6 +185,7 @@ struct CaretStopButton: View {
                     .font(.system(size: coordinator.fixedMenuItemSize * 0.5))
                     .foregroundColor(.red)
                     .scaleEffect(isPressed ? 0.9 : 1.0)
+                    .shadow(color: Color.red.opacity(0.4), radius: 4, x: 0, y: 2)
             }
             .buttonStyle(PlainButtonStyle())
             .onPressGesture(
@@ -294,7 +296,15 @@ struct AudioWaveformView: View {
                 endPoint: .top
             )
         )
-        .shadow(color: Color.accentColor.opacity(0.3), radius: 5, y: 2)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .mask(
+            LinearGradient(
+                gradient: Gradient(colors: [.clear, .black]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
         .onReceive(timer) { _ in
             guard coordinator.isRecording && !coordinator.isPaused else { return }
             
@@ -321,65 +331,43 @@ struct AudioWaveformView: View {
 
 struct TranscriptionView: View {
     @ObservedObject var coordinator: CaretUICoordinator
-    
+    @State private var localText: String = ""
+    @State private var opacity: Double = 0
+    @State private var offsetX: CGFloat = 20
+
     var body: some View {
-        let textView = Text(coordinator.transcribedText.isEmpty ? "Listening..." : coordinator.transcribedText)
+        Text(localText.isEmpty ? "Listening..." : localText)
             .font(.system(size: coordinator.fixedPromptFieldFontSize))
             .foregroundColor(.primary)
             .multilineTextAlignment(.trailing)
-            .frame(maxWidth: 150, alignment: .trailing)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .shadow(color: .black.opacity(0.3), radius: 2, y: 1) // Text shadow for better readability
-
-        return ZStack {
-            // Blur background, making the view itself blurry
-            VisualEffectBlur(blurStyle: .popover)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
+            .frame(maxWidth: 150, alignment: .trailing)
+            .mask(
+                LinearGradient(
+                    gradient: Gradient(colors: [.clear, .black]),
+                    startPoint: .leading,
+                    endPoint: .trailing
                 )
-
-            // Fading mask for the text
-            textView
-                .mask(
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: 0.2),
-                            .init(color: .black, location: 1.0)
-                        ]),
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-        }
-        .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 4)
-        .scaleEffect(x: coordinator.isRecording ? 1.0 : 0.1, anchor: .trailing)
-        .offset(x: coordinator.isRecording ? 0 : coordinator.caretButtonPadding)
-        .opacity(coordinator.isRecording ? 1.0 : 0.0)
-        .animation(
-            .spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
-            value: coordinator.isRecording
-        )
-        .allowsHitTesting(false)
-    }
-}
-
-struct VisualEffectBlur: NSViewRepresentable {
-    var blurStyle: NSVisualEffectView.Material
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.material = blurStyle
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = blurStyle
+            )
+            .opacity(opacity)
+            .offset(x: offsetX)
+            .onChange(of: coordinator.transcribedText) { oldValue, newValue in
+                // Extract last three words
+                let words = newValue.split(separator: " ")
+                let lastThree = words.isEmpty ? [] : words.suffix(3)
+                localText = lastThree.joined(separator: " ")
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    opacity = localText.isEmpty ? 0 : 1
+                    offsetX = localText.isEmpty ? 20 : 0
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    withAnimation(.easeOut(duration: 1.0)) {
+                        opacity = 0
+                    }
+                }
+            }
+            .allowsHitTesting(false)
     }
 }
 
