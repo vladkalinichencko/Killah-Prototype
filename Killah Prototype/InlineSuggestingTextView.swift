@@ -8,6 +8,7 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     @ObservedObject var llmEngine: LLMEngine
     @Binding var debouncer: Debouncer
     @Binding var formattingDelegate: TextFormattingDelegate?
+    var onSelectionChange: (() -> Void)? = nil
     
     private let fontManager = FontManager.shared
 
@@ -121,6 +122,11 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        DispatchQueue.main.async {
+            formattingDelegate = context.coordinator
+            FormattingCommands.shared.delegate = context.coordinator
+        }
+        
         guard let textView = nsView.documentView as? CustomInlineNSTextView else { return }
         
         if textView.committedText() != text && !context.coordinator.isInternallyUpdatingTextBinding {
@@ -174,6 +180,95 @@ class Coordinator: NSObject, NSTextViewDelegate {
             guard let textView = managedTextView else { return }
             textView.font = FontManager.shared.defaultEditorFont()
         }
+    
+        private enum FormattingCheck {
+            case symbolicTrait(NSFontDescriptor.SymbolicTraits)
+            case attribute(key: NSAttributedString.Key, value: AnyHashable)
+        }
+    
+        private func isActive(_ check: FormattingCheck) -> Bool {
+            guard let textView = managedTextView else { return false }
+            let range = textView.selectedRange
+
+            switch check {
+            case .symbolicTrait(let trait):
+                return fontTraitActive(in: range, trait: trait)
+            case .attribute(let key, let value):
+                return attributeActive( in: range, key: key, value: value )
+            }
+        }
+
+    
+        func isBoldActive() -> Bool {
+            return isActive(.symbolicTrait(.bold))
+        }
+    
+        func isItalicActive() -> Bool {
+            return isActive(.symbolicTrait(.italic))
+        }
+    
+        func isUnderlineActive() -> Bool {
+            return isActive(.attribute(key: .underlineStyle,
+                                        value: NSUnderlineStyle.single.rawValue))
+        }
+    
+        func isStrikethroughActive() -> Bool {
+            return isActive(.attribute(key: .strikethroughStyle,
+                                        value: NSUnderlineStyle.single.rawValue))
+        }
+
+
+        // MARK: – Проверка шрифтовых traits (bold/italic)
+        private func fontTraitActive(in range: NSRange,
+                                     trait: NSFontDescriptor.SymbolicTraits) -> Bool {
+            guard let textView = managedTextView else { return false }
+
+            // Если есть выделение — считаем active, если хотя бы один символ в нём имеет trait
+            if range.length > 0 {
+                var found = false
+                textView.textStorage?.enumerateAttribute(.font, in: range) { value, _, stop in
+                    if let font = value as? NSFont,
+                       font.fontDescriptor.symbolicTraits.contains(trait) {
+                        found = true
+                        stop.pointee = true
+                    }
+                }
+                return found
+            }
+
+            // Нет выделения — смотрим typingAttributes, как раньше
+            if let typingFont = textView.typingAttributes[.font] as? NSFont {
+                return typingFont.fontDescriptor.symbolicTraits.contains(trait)
+            }
+            return false
+        }
+
+        // MARK: – Проверка текстовых атрибутов (underline/strikethrough)
+        private func attributeActive(in range: NSRange,
+                                     key: NSAttributedString.Key,
+                                     value: AnyHashable) -> Bool {
+            guard let textView = managedTextView else { return false }
+
+            // Есть выделение — true, если хотя бы один символ в нём имеет атрибут = value
+            if range.length > 0 {
+                var found = false
+                textView.textStorage?.enumerateAttribute(key, in: range) { current, _, stop in
+                    if let h = current as? AnyHashable, h == value {
+                        found = true
+                        stop.pointee = true
+                    }
+                }
+                return found
+            }
+
+            // Нет выделения — только typingAttributes
+            if let h = textView.typingAttributes[key] as? AnyHashable {
+                return h == value
+            }
+            return false
+        }
+
+
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? CustomInlineNSTextView else { return }
@@ -237,6 +332,11 @@ class Coordinator: NSObject, NSTextViewDelegate {
             
             caretCoordinator?.updateCaretPosition(for: textView, at: charIndex)
             textView.lastMouseUpCharIndex = nil
+            
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.parent.onSelectionChange?()
+            }
         }
         
         
@@ -321,74 +421,111 @@ class Coordinator: NSObject, NSTextViewDelegate {
     }
 }
 
+final class FormattingCommands {
+    static let shared = FormattingCommands()
+    weak var delegate: TextFormattingDelegate?   // <-- это твой делегат, обычно Coordinator
+    private init() {}
+
+    func toggleBold() { delegate?.toggleBold() }
+    func toggleItalic() { delegate?.toggleItalic() }
+    func toggleUnderline() { delegate?.toggleUnderline() }
+    func toggleStrikethrough() { delegate?.toggleStrikethrough() }
+}
+
+
 extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
-    /// Helper to toggle a symbolic font trait (bold, italic)
-    private func toggleSymbolicTrait(_ trait: NSFontDescriptor.SymbolicTraits) {
+    func toggleSymbolicTrait(_ trait: NSFontDescriptor.SymbolicTraits) {
         guard let textView = managedTextView else { return }
-        let selectedRange = textView.selectedRange
+        let range = textView.selectedRange
+
+        // 1) Определяем, хотим ли мы убрать или добавить
+        let shouldRemove = fontTraitActive(in: range, trait: trait)
+
+        // 2) Функция, которая либо убирает, либо добавляет
         let applyTrait: (NSFont) -> NSFont = { font in
             var traits = font.fontDescriptor.symbolicTraits
-            if traits.contains(trait) { traits.remove(trait) } else { traits.insert(trait) }
+            if shouldRemove {
+                traits.remove(trait)
+            } else {
+                traits.insert(trait)
+            }
             return NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(traits), size: font.pointSize) ?? font
         }
-        if selectedRange.length == 0 {
-            if let font = textView.typingAttributes[.font] as? NSFont {
-                textView.typingAttributes[.font] = applyTrait(font)
-            }
-        } else {
-            textView.textStorage?.enumerateAttribute(.font, in: selectedRange) { value, range, _ in
-                if let font = value as? NSFont {
-                    textView.textStorage?.addAttribute(.font, value: applyTrait(font), range: range)
+
+        // 3) Применяем ко всему выделению или к typingAttributes
+        if range.length > 0 {
+            textView.textStorage?.enumerateAttribute(.font, in: range) { value, subRange, _ in
+                if let f = value as? NSFont {
+                    textView.textStorage?.addAttribute(.font, value: applyTrait(f), range: subRange)
                 }
             }
+        } else {
+            // пустой курсор — изменяем typingAttributes
+            if let f = textView.typingAttributes[.font] as? NSFont {
+                textView.typingAttributes[.font] = applyTrait(f)
+            }
+        }
+
+        // 4) Обновляем тулбар сразу после клика
+        DispatchQueue.main.async { [weak self] in
+            self?.parent.onSelectionChange?()
         }
     }
 
-     func toggleBold() {
-         toggleSymbolicTrait(.bold)
-     }
-
-     func toggleItalic() {
-         toggleSymbolicTrait(.italic)
-     }
-
-    /// Generic helper to toggle an attribute with different toggled/default values
-    private func toggleAttribute<T: Equatable>(_ key: NSAttributedString.Key, toggledValue: T, defaultValue: T) {
+    func toggleAttribute(_ key: NSAttributedString.Key,
+                         toggledValue: AnyHashable) {
         guard let textView = managedTextView else { return }
-        let selectedRange = textView.selectedRange
-        
-        let apply: (T?) -> T = { current in
-            (current == toggledValue) ? defaultValue : toggledValue
-        }
-        
-        if selectedRange.length == 0 {
-            let current = textView.typingAttributes[key] as? T
-            textView.typingAttributes[key] = apply(current)
+        let range = textView.selectedRange
+
+        // 1) Определяем, убрать ли из выделения
+        let shouldRemove = attributeActive(in: range, key: key, value: toggledValue)
+
+        // 2) Применяем ко всему выделению или к typingAttributes
+        if range.length > 0 {
+            textView.textStorage?.enumerateAttribute(key, in: range) { current, subRange, _ in
+                if shouldRemove {
+                    textView.textStorage?.removeAttribute(key, range: subRange)
+                } else {
+                    textView.textStorage?.addAttribute(key, value: toggledValue, range: subRange)
+                }
+            }
         } else {
-            textView.textStorage?.enumerateAttribute(key, in: selectedRange) { value, range, _ in
-                let current = value as? T
-                let newValue = apply(current)
-                textView.textStorage?.addAttribute(key, value: newValue, range: range)
+            // пустой курсор — изменяем typingAttributes
+            if shouldRemove {
+                textView.typingAttributes.removeValue(forKey: key)
+            } else {
+                textView.typingAttributes[key] = toggledValue
             }
         }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.parent.onSelectionChange?()
+        }
+    }
+
+    
+    func toggleBold() {
+        toggleSymbolicTrait(.bold)
+
+    }
+
+    func toggleItalic() {
+        toggleSymbolicTrait(.italic)
     }
 
     func toggleUnderline() {
         toggleAttribute(.underlineStyle,
-                        toggledValue: NSUnderlineStyle.single.rawValue,
-                        defaultValue: 0)
+                        toggledValue: NSUnderlineStyle.single.rawValue)
     }
 
     func toggleStrikethrough() {
         toggleAttribute(.strikethroughStyle,
-                        toggledValue: NSUnderlineStyle.single.rawValue,
-                        defaultValue: 0)
+                        toggledValue: NSUnderlineStyle.single.rawValue)
     }
 
     func toggleHighlight() {
         toggleAttribute(.backgroundColor,
-                        toggledValue: NSColor.yellow,
-                        defaultValue: NSColor.clear)
+                        toggledValue: NSColor.yellow)
     }
     
     /// Generic helper for line-based operations

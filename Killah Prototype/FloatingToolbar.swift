@@ -4,48 +4,43 @@ import AppKit
 /// Floating toolbar with formatting controls
 struct FloatingToolbar: View {
     weak var formattingDelegate: TextFormattingDelegate?
+    var isBoldActive: Bool
+    var isItalicActive: Bool
+    var isUnderlineActive: Bool
+    var isStrikethroughActive: Bool
     private let fontManager = FontManager.shared
     
     var body: some View {
         HStack(spacing: 12) {
             // Text formatting group
             HStack(spacing: 8) {
-                Button(action: {
-                    formattingDelegate?.toggleBold() // bold
-                }) {
+                Button(action: { formattingDelegate?.toggleBold() }) {
                     Image(systemName: "bold")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isBoldActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isBoldActive))
 
-
-                Button(action: {
-                    formattingDelegate?.toggleItalic() // italic
-                }) {
+                Button(action: { formattingDelegate?.toggleItalic() }) {
                     Image(systemName: "italic")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isItalicActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isItalicActive))
 
-                Button(action: {
-                    formattingDelegate?.toggleUnderline() // underline
-                }) {
+                Button(action: { formattingDelegate?.toggleUnderline() }) {
                     Image(systemName: "underline")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isUnderlineActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isUnderlineActive))
 
-                Button(action: {
-                    formattingDelegate?.toggleStrikethrough() // strikethrough
-                }) {
+                Button(action: { formattingDelegate?.toggleStrikethrough() }) {
                     Image(systemName: "strikethrough")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isStrikethroughActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isStrikethroughActive))
             }
             
             Divider().frame(height: 20)
@@ -116,13 +111,14 @@ struct FloatingToolbar: View {
 }
 
 struct ToolbarButtonStyle: ButtonStyle {
+    var isActive: Bool = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(configuration.isPressed ? Color.primary.opacity(0.15) : Color.clear)
+                    .fill(isActive ? Color.accentColor.opacity(0.18) : (configuration.isPressed ? Color.primary.opacity(0.15) : Color.clear))
             )
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
