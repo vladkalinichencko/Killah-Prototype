@@ -6,6 +6,7 @@ import QuartzCore
 struct InlineSuggestingTextView: NSViewRepresentable {
     @Binding var text: String
     @ObservedObject var llmEngine: LLMEngine
+    @ObservedObject var audioEngine: AudioEngine
     @Binding var debouncer: Debouncer
     @Binding var formattingDelegate: TextFormattingDelegate?
     var onSelectionChange: (() -> Void)? = nil
@@ -13,7 +14,7 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     private let fontManager = FontManager.shared
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(self, llmEngine: llmEngine)
+        Coordinator(self, llmEngine: llmEngine, audioEngine: audioEngine)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -70,26 +71,36 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     }
     
     private func setupCustomCaret(_ textView: CustomInlineNSTextView, context: Context) {
-        let caretCoordinator = CaretUICoordinator()
+        let caretCoordinator = CaretUICoordinator(audioEngine: audioEngine)
         context.coordinator.caretCoordinator = caretCoordinator
         
         let caretOverlay = caretCoordinator.createCaretOverlay()
         let menuOverlay = caretCoordinator.createRecordButtonOverlay()
         let promptOverlay = caretCoordinator.createPromptFieldOverlay()
+        let pauseOverlay = caretCoordinator.createPauseButtonOverlay()
+        let stopOverlay = caretCoordinator.createStopButtonOverlay()
+        let audioWaveformOverlay = caretCoordinator.createAudioWaveformOverlay()
+        let transcriptionOverlay = caretCoordinator.createTranscriptionOverlay()
         
         textView.addSubview(caretOverlay)
         textView.addSubview(menuOverlay)
         textView.addSubview(promptOverlay)
+        textView.addSubview(pauseOverlay)
+        textView.addSubview(stopOverlay)
+        textView.addSubview(audioWaveformOverlay)
+        textView.addSubview(transcriptionOverlay)
 
         caretOverlay.frame = caretCoordinator.caretOverlayFrame()
         menuOverlay.frame = caretCoordinator.recordButtonFrame()
         promptOverlay.frame = caretCoordinator.promptFieldFrame()
-        
-        menuOverlay.isHidden = !caretCoordinator.isExpanded
-        promptOverlay.isHidden = !caretCoordinator.isExpanded
+        pauseOverlay.frame = caretCoordinator.pauseButtonFrame()
+        stopOverlay.frame = caretCoordinator.stopButtonFrame()
+        audioWaveformOverlay.frame = caretCoordinator.audioWaveformFrame()
+        transcriptionOverlay.frame = caretCoordinator.transcriptionFrame()
         
         DispatchQueue.main.async {
             caretCoordinator.updateCaretPosition(for: textView)
+            caretOverlay.isHidden = false
         }
 
         let caretCancellable = caretCoordinator.$caretPosition.combineLatest(caretCoordinator.$caretSize).sink { _, _ in
@@ -101,16 +112,18 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         }
         
         let menuCancellable = caretCoordinator.$caretPosition
-            .combineLatest(caretCoordinator.$caretSize, caretCoordinator.$isExpanded)
-            .sink { _, _, isExpanded in
+            .combineLatest(caretCoordinator.$caretSize, caretCoordinator.$isExpanded, caretCoordinator.$isRecording)
+            .sink { _, _, isExpanded, isRecording in
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.15
                     context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     menuOverlay.animator().frame = caretCoordinator.recordButtonFrame()
                     promptOverlay.animator().frame = caretCoordinator.promptFieldFrame()
+                    pauseOverlay.animator().frame = caretCoordinator.pauseButtonFrame()
+                    stopOverlay.animator().frame = caretCoordinator.stopButtonFrame()
+                    audioWaveformOverlay.animator().frame = caretCoordinator.audioWaveformFrame()
+                    transcriptionOverlay.animator().frame = caretCoordinator.transcriptionFrame()
                 }
-                menuOverlay.isHidden = !isExpanded
-                promptOverlay.isHidden = !isExpanded
             }
         
         if context.coordinator.caretCancellables == nil {
@@ -158,7 +171,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
         var isInternallyUpdatingTextBinding: Bool = false
         var isProcessingAcceptOrDismiss: Bool = false
 
-        init(_ parent: InlineSuggestingTextView, llmEngine: LLMEngine) {
+        init(_ parent: InlineSuggestingTextView, llmEngine: LLMEngine, audioEngine: AudioEngine) {
             self.parent = parent
             self.llmEngine = llmEngine
             self.currentCommittedText = parent.text
