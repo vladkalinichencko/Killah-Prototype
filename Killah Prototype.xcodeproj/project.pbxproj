@@ -11,7 +11,8 @@
 		401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */; };
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
-		408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */; };
+		76D31FC22E01EC4A00F35B70 /* audio.py in Resources */ = {isa = PBXBuildFile; fileRef = 76D31FC12E01EC4A00F35B70 /* audio.py */; };
+		76ECC9942DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +23,8 @@
 		408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */ = {isa = PBXFileReference; lastKnownFileType = file; name = minillm_export.pt; path = Resources/minillm_export.pt; sourceTree = "<group>"; };
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		76D31FC12E01EC4A00F35B70 /* audio.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = audio.py; path = Resources/audio.py; sourceTree = "<group>"; };
+		76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-pt-q4_0.gguf"; path = "Resources/gemma-3-4b-pt-q4_0.gguf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -46,6 +49,8 @@
 		40C731562DC63936004D753D = {
 			isa = PBXGroup;
 			children = (
+				76D31FC12E01EC4A00F35B70 /* audio.py */,
+				76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */,
 				408B41602DCBA8A800318056 /* Info.plist */,
 				408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */,
 				408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */,
@@ -130,7 +135,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */,
+				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,
+				76ECC9942DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,
 				401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */,
