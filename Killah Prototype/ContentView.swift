@@ -25,6 +25,10 @@ protocol TextFormattingDelegate: AnyObject {
     func toggleItalic() 
     func toggleUnderline()
     func toggleStrikethrough()
+    func isBoldActive() -> Bool
+    func isItalicActive() -> Bool
+    func isUnderlineActive() -> Bool
+    func isStrikethroughActive() -> Bool
     func toggleBulletList()
     func toggleNumberedList()
     func setTextAlignment(_ alignment: NSTextAlignment)
@@ -40,6 +44,11 @@ struct ContentView: View {
     @State private var debouncer = Debouncer(delay: 0.5)
     @State private var textFormattingDelegate: TextFormattingDelegate?
     
+    @State private var isBoldActive = false
+    @State private var isItalicActive = false
+    @State private var isUnderlineActive = false
+    @State private var isStrikethroughActive = false
+
     var body: some View {
         ZStack(alignment: .top) {
             // Фон, соответствующий титлбару
@@ -51,17 +60,33 @@ struct ContentView: View {
                 text: $document.text,
                 llmEngine: llmEngine,
                 debouncer: $debouncer,
-                formattingDelegate: $textFormattingDelegate
+                formattingDelegate: $textFormattingDelegate,
+                onSelectionChange: updateToolbarStates
             )
-            
+
             // Floating toolbar with system white background
-            FloatingToolbar(formattingDelegate: textFormattingDelegate)
+            FloatingToolbar(
+                formattingDelegate: textFormattingDelegate,
+                isBoldActive: isBoldActive,
+                isItalicActive: isItalicActive,
+                isUnderlineActive: isUnderlineActive,
+                isStrikethroughActive: isStrikethroughActive
+            )
                 .zIndex(1)
                 .padding(.top, 10)
                 .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
         }
         .onAppear {
             llmEngine.startEngine()
+            updateToolbarStates()
         }
+    }
+    
+    func updateToolbarStates() {
+        guard let delegate = textFormattingDelegate else { return }
+        isBoldActive = delegate.isBoldActive()
+        isItalicActive = delegate.isItalicActive()
+        isUnderlineActive = delegate.isUnderlineActive()
+        isStrikethroughActive = delegate.isStrikethroughActive()
     }
 }
