@@ -79,7 +79,8 @@ struct ContentView: View {
                 .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
         }
         .onAppear {
-            llmEngine.startEngine()
+            llmEngine.startEngine(for: "autocomplete")
+            llmEngine.startEngine(for: "audio")
             updateToolbarStates()
         }
     }
