@@ -92,7 +92,7 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     
         if textView.committedText() != text && !context.coordinator.isInternallyUpdatingTextBinding {
             textView.clearGhostText()
-            llmEngine.abortCurrentSuggestion()
+            llmEngine.abortSuggestion(for: "autocomplete")
             textView.string = text
             textView.selectedRange = NSRange(location: text.utf16.count, length: 0)
             DispatchQueue.main.async {
@@ -263,14 +263,14 @@ class Coordinator: NSObject, NSTextViewDelegate {
                         return false
                     } else {
                         tv.clearGhostText()
-                        llmEngine.abortCurrentSuggestion()
+                        llmEngine.abortSuggestion(for: "autocomplete")
                         parent.debouncer.cancel()
                         return true
                     }
                 }
                 else if NSMaxRange(affectedCharRange) <= ghostRange.location {
                     tv.clearGhostText()
-                    llmEngine.abortCurrentSuggestion()
+                    llmEngine.abortSuggestion(for: "autocomplete")
                     parent.debouncer.cancel()
                     return true
                 }
@@ -305,7 +305,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
             let currentPromptForLLM = textView.committedText()
             guard !currentPromptForLLM.isEmpty else {
                 textView.clearGhostText()
-                llmEngine.abortCurrentSuggestion()
+                llmEngine.abortSuggestion(for: "autocomplete")
                 return
             }
             
@@ -313,7 +313,9 @@ class Coordinator: NSObject, NSTextViewDelegate {
                 textView.clearGhostText()
             }
 
-            llmEngine.generateSuggestion(prompt: currentPromptForLLM) { [weak textView] token in
+            llmEngine.generateSuggestion(
+                for: "autocomplete",
+                prompt: currentPromptForLLM) { [weak textView] token in
                 DispatchQueue.main.async {
                     textView?.appendGhostTextToken(token)
                 }
@@ -326,7 +328,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
                             textView.clearGhostText()
                         }
                     case .failure(let error):
-                        if case LLMError.aborted = error {
+                        if case LLMEngine.LLMError.aborted = error {
                         } else {
                             textView.clearGhostText()
                         }
@@ -922,17 +924,6 @@ extension NSFont {
     var isItalic: Bool {
         return fontDescriptor.symbolicTraits.contains(.italic)
     }
-}
-
-enum LLMError: Error {
-    case aborted
-    case processLaunchError(String)
-    case engineNotRunning
-    case pythonScriptNotReady
-    case promptEncodingError
-    case stdinWriteError(String)
-    case scriptError(String)
-    case other(Error)
 }
 
 #if canImport(Carbon)

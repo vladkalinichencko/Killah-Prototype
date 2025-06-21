@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUICore
 import AVFoundation
 import Combine
 import Speech
@@ -8,7 +9,9 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     @Published var isPaused = false
     @Published var transcribedText = ""
     @Published var audioLevel: Float = 0.0
-
+    
+    
+    private var savedAudioFilePath: URL?
     private var audioEngine: AVAudioEngine!
     private var audioFile: AVAudioFile?
     private var audioFilePath: URL?
@@ -24,9 +27,14 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
 
     // Use AVCaptureSession to trigger macOS microphone indicator
     private var captureSession: AVCaptureSession?
-    private var isStopping = false
+        private var isStopping = false
 
-    override init() {
+    private let llmEngine: LLMEngine // Inject LLMEngine
+    private var stateCancellable: AnyCancellable?
+
+
+    init(llmEngine: LLMEngine) {
+        self.llmEngine = llmEngine
         super.init()
         audioEngine = AVAudioEngine()
         speechRecognizer?.delegate = self
@@ -45,6 +53,15 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         }
         // Setup AVCaptureSession for microphone indicator
         setupCaptureSession()
+        
+        // Observe LLMEngine state
+        stateCancellable = llmEngine.$engineState.sink {state in
+            if case .error(let message) = state {
+                DispatchQueue.main.async {
+                    print("AI Engine Error: \(message)")
+                }
+            }
+        }
     }
 
     /// Configure AVCaptureSession with audio input to show system mic indicator
@@ -67,7 +84,10 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
 
     func startRecording() {
         guard !isRecording else { return }
+        print("Starting recording process...")
         
+        //llmEngine.abortSuggestion(for: "audio", notifyPython: true)
+
         // Force microphone permission request
         requestMicrophonePermission { [weak self] granted in
             if granted {
@@ -102,6 +122,32 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+        
+        print("Audio format: \(recordingFormat)")
+        
+        // Path to save the format
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        print("Documents directory: \(documentsPath.absoluteString)")
+        if FileManager.default.isWritableFile(atPath: documentsPath.path) {
+            print("✅ Documents directory is writable")
+        } else {
+            print("❌ Documents directory is NOT writable")
+        }
+        
+        let audioFileName = "recording_\(Date().timeIntervalSince1970).wav"
+        audioFilePath = documentsPath.appendingPathComponent(audioFileName)
+        print("Audio file path set to: \(audioFilePath!.absoluteString)")
+        savedAudioFilePath = audioFilePath // Сохраняем копию
+        print("Audio file path set to: \(audioFilePath!.absoluteString)")
+        // Creation AVAudioFile for recording
+        do {
+            audioFile = try AVAudioFile(forWriting: audioFilePath!, settings: recordingFormat.settings)
+            print("✅ AVAudioFile created successfully at: \(audioFilePath!.absoluteString)")
+        } catch {
+            print("❌ Failed to create audio file: \(error)")
+            audioFilePath = nil // Явно сбрасываем путь при ошибке
+            return
+        }
         
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else {
@@ -141,6 +187,13 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, when) in
             guard let self = self, !self.isPaused else { return }
             
+            // Writing buffer to the file
+            do {
+                try self.audioFile?.write(from: buffer)
+            } catch {
+                print("Failed to write audio buffer to file: \(error)")
+            }
+            
             self.recognitionRequest?.append(buffer)
             self.updateAudioLevel(buffer: buffer)
         }
@@ -170,7 +223,12 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     }
 
     func stopRecording() {
-        guard isRecording, !isStopping else { return }
+        guard isRecording, !isStopping else {
+            print("⚠️ stopRecording called but isRecording is false")
+            return
+        }
+
+        print("Stopping recording...")
 
         isStopping = true
 
@@ -184,9 +242,11 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         audioEngine.inputNode.removeTap(onBus: 0)
 
         recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionRequest = nil
-        recognitionTask = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.recognitionTask?.cancel()
+            self.recognitionRequest = nil
+            self.recognitionTask = nil
+        }
         
         audioFile = nil
 
@@ -196,6 +256,32 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
             self.isStopping = false
         }
         audioFilePath = nil
+            if let path = self.savedAudioFilePath ?? self.audioFilePath {
+                print("Audio file path: \(path.absoluteString)")
+                if FileManager.default.fileExists(atPath: path.path) {
+                    print("✅ Audio file exists at: \(path.absoluteString)")
+                    do {
+                        let attributes = try FileManager.default.attributesOfItem(atPath: path.path)
+                        let fileSize = attributes[.size] as? Int64 ?? 0
+                        print("File size: \(fileSize) bytes")
+                        if fileSize > 44 { // WAV заголовок ~44 байта
+                            self.audioFilePath = path // Восстанавливаем путь
+                            self.processAudioFileWithPython()
+                        } else {
+                            print("⚠️ Audio file is too small (likely empty): \(fileSize) bytes")
+                        }
+                    } catch {
+                        print("❌ Error checking file attributes: \(error)")
+                    }
+                } else {
+                    print("❌ Audio file does NOT exist at: \(path.absoluteString)")
+                }
+            } else {
+                print("❌ Both savedAudioFilePath and audioFilePath are nil")
+            }
+            self.audioFilePath = nil
+            self.savedAudioFilePath = nil
+        }
     }
 
     func togglePause() {
@@ -260,4 +346,61 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
             // Handle unavailability, e.g., disable the record button
         }
     }
+    
+    private func processAudioFileWithPython() {
+        guard let audioFilePath = audioFilePath else {
+            print("No audio file available to process")
+            return
+        }
+        
+        let checkInterval: TimeInterval = 0.1
+        var attempts = 50
+        print("Checking audio.py state for processing %s", audioFilePath.path)
+        
+        func trySendData() {
+            let runnerState = llmEngine.getRunnerState(for: "audio")
+            print("Current audio.py state: %s", String(describing: runnerState))
+            if runnerState == .running {
+                llmEngine.generateSuggestion(
+                    for: "audio",
+                    prompt: audioFilePath.path,
+                    tokenStreamCallback: { token in
+                        print("Audio token received: %s", token)
+                    },
+                    onComplete: { [weak self] result in
+                        guard self != nil else { return }
+                        switch result {
+                        case .success(let output):
+                            print("Audio processing completed: %s", output)
+                            // Удаляем аудиофайл после успешной обработки
+                            do {
+                                try FileManager.default.removeItem(at: audioFilePath)
+                                print("✅ Audio file deleted: \(audioFilePath.path)")
+                            } catch {
+                                print("❌ Failed to delete audio file \(audioFilePath.path): \(error)")
+                            }
+                        case .failure(let error):
+                            print("Audio processing failed: %s", error.localizedDescription)
+                            DispatchQueue.main.async {
+                                print("Failed to process audio: %s", error.localizedDescription)
+                            }
+                        }
+                    }
+                )
+            } else if attempts > 0 {
+                attempts -= 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + checkInterval) {
+                    trySendData()
+                }
+            } else {
+                print("❌ audio.py failed to reach running state after %.1f seconds", 50 * checkInterval)
+                DispatchQueue.main.async {
+                    print("Audio processing engine not ready")
+                }
+            }
+        }
+        
+        trySendData()
+    }
+        
 }
