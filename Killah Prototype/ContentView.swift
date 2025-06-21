@@ -91,7 +91,8 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            llmEngine.startEngine()
+            llmEngine.startEngine(for: "autocomplete")
+            llmEngine.startEngine(for: "audio")
             updateToolbarStates()
         }
     }

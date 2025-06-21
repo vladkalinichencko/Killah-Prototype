@@ -11,8 +11,14 @@ import AppKit
 @main
 struct Killah_PrototypeApp: App {
     @StateObject private var llmEngine = LLMEngine()
-    @StateObject private var audioEngine = AudioEngine()
-
+    @StateObject private var audioEngine: AudioEngine
+    
+    init() {
+        let llm = LLMEngine()
+        _llmEngine = StateObject(wrappedValue: llm)
+        _audioEngine = StateObject(wrappedValue: AudioEngine(llmEngine: llm))
+    }
+    
     var body: some Scene {
         DocumentGroup(newDocument: TextDocument()) { file in
             ContentView(document: file.$document)
