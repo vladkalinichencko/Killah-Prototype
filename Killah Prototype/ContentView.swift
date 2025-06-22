@@ -29,6 +29,11 @@ protocol TextFormattingDelegate: AnyObject {
     func isItalicActive() -> Bool
     func isUnderlineActive() -> Bool
     func isStrikethroughActive() -> Bool
+    func isBulletListActive() -> Bool
+    func isNumberedListActive() -> Bool
+    func isLeftAlignActive() -> Bool
+    func isCenterAlignActive() -> Bool
+    func isRightAlignActive() -> Bool
     func toggleBulletList()
     func toggleNumberedList()
     func setTextAlignment(_ alignment: NSTextAlignment)
@@ -51,6 +56,11 @@ struct ContentView: View {
     @State private var isStrikethroughActive = false
     @State private var caretCoordinator: CaretUICoordinator?
     @State private var viewUpdater: Bool = false
+    @State private var isBulletActive = false
+    @State private var isNumberedActive = false
+    @State private var isLeftAlignActive   = true
+    @State private var isCenterAlignActive = false
+    @State private var isRightAlignActive  = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -80,7 +90,12 @@ struct ContentView: View {
                 isBoldActive: isBoldActive,
                 isItalicActive: isItalicActive,
                 isUnderlineActive: isUnderlineActive,
-                isStrikethroughActive: isStrikethroughActive
+                isStrikethroughActive: isStrikethroughActive,
+                isBulletActive: isBulletActive,
+                isNumberedActive: isNumberedActive,
+                isLeftAlignActive: isLeftAlignActive,
+                isCenterAlignActive: isCenterAlignActive,
+                isRightAlignActive: isRightAlignActive
             )
                 .zIndex(1)
                 .padding(.top, 20)
@@ -96,15 +111,7 @@ struct ContentView: View {
             updateToolbarStates()
         }
     }
-    
-    func updateToolbarStates() {
-        guard let delegate = textFormattingDelegate else { return }
-        isBoldActive = delegate.isBoldActive()
-        isItalicActive = delegate.isItalicActive()
-        isUnderlineActive = delegate.isUnderlineActive()
-        isStrikethroughActive = delegate.isStrikethroughActive()
-    }
-    
+
     @ViewBuilder
     private func caretOverlays(coordinator: CaretUICoordinator) -> some View {
         let verticalAdjustment: CGFloat = 5
@@ -150,5 +157,30 @@ struct ContentView: View {
                 .zIndex(2)
         }
         .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), value: coordinator.caretPositionInWindow)
+    }
+    
+    func updateToolbarStates() {
+        guard let delegate = textFormattingDelegate else { return }
+        isBoldActive = delegate.isBoldActive()
+        isItalicActive = delegate.isItalicActive()
+        isUnderlineActive = delegate.isUnderlineActive()
+        isStrikethroughActive = delegate.isStrikethroughActive()
+        isBulletActive   = delegate.isBulletListActive()
+        isNumberedActive = delegate.isNumberedListActive()
+        isLeftAlignActive   = delegate.isLeftAlignActive()
+        isCenterAlignActive = delegate.isCenterAlignActive()
+        isRightAlignActive  = delegate.isRightAlignActive()
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView(
+            // 1) Binding-заглушка для документа
+            document: .constant(TextDocument())
+        )
+        // 2) Прокидываем оба environmentObject
+        .environmentObject(LLMEngine())
+        .environmentObject(AudioEngine())
     }
 }
