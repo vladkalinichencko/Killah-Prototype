@@ -98,15 +98,13 @@ struct FloatingToolbar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8) // Add vertical padding for better appearance
         .background(.ultraThickMaterial) // Use ultraThickMaterial for a translucent background
-        .cornerRadius(8) // Rounded corners for the toolbar
+        .cornerRadius(12) // Rounded corners for the toolbar
         .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 2) // Add a shadow
     }
     
     private func openFontPanel() {
         guard NSApp.mainWindow != nil else { return }
-        DispatchQueue.main.async {
-            NSApp.sendAction(#selector(NSFontManager.orderFrontFontPanel(_:)), to: nil, from: nil)
-        }
+        NSApp.sendAction(#selector(NSFontManager.orderFrontFontPanel(_:)), to: nil, from: nil)
     }
 }
 
