@@ -8,6 +8,12 @@ struct FloatingToolbar: View {
     var isItalicActive: Bool
     var isUnderlineActive: Bool
     var isStrikethroughActive: Bool
+    var isBulletActive: Bool
+    var isNumberedActive: Bool
+    var isLeftAlignActive: Bool
+    var isCenterAlignActive: Bool
+    var isRightAlignActive: Bool
+    
     private let fontManager = FontManager.shared
     
     var body: some View {
@@ -50,29 +56,44 @@ struct FloatingToolbar: View {
                 Button(action: { formattingDelegate?.toggleBulletList() }) {
                     Image(systemName: "list.bullet")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isBulletActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
-                
+                .buttonStyle(ToolbarButtonStyle(isActive: isBulletActive))
+
                 Button(action: { formattingDelegate?.toggleNumberedList() }) {
                     Image(systemName: "list.number")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isNumberedActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isNumberedActive))
             }
             
             Divider().frame(height: 20)
             
             // Alignment
             HStack(spacing: 8) {
-                Button(action: { formattingDelegate?.setTextAlignment(.left) }) { Image(systemName: "text.alignleft").font(.system(size: fontManager.toolbarIconSize, weight: .medium)).foregroundColor(.primary) }
-                    .buttonStyle(ToolbarButtonStyle())
-                Button(action: { formattingDelegate?.setTextAlignment(.center) }) { Image(systemName: "text.aligncenter").font(.system(size: fontManager.toolbarIconSize, weight: .medium)).foregroundColor(.primary) }
-                    .buttonStyle(ToolbarButtonStyle())
-                Button(action: { formattingDelegate?.setTextAlignment(.right) }) { Image(systemName: "text.alignright").font(.system(size: fontManager.toolbarIconSize, weight: .medium)).foregroundColor(.primary) }
-                    .buttonStyle(ToolbarButtonStyle())
+                Button(action: { formattingDelegate?.setTextAlignment(.left) }) {
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
+                        .foregroundColor(isLeftAlignActive ? .accentColor : .primary)
+                }
+                .buttonStyle(ToolbarButtonStyle(isActive: isLeftAlignActive))
+
+                Button(action: { formattingDelegate?.setTextAlignment(.center) }) {
+                    Image(systemName: "text.aligncenter")
+                        .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
+                        .foregroundColor(isCenterAlignActive ? .accentColor : .primary)
+                }
+                .buttonStyle(ToolbarButtonStyle(isActive: isCenterAlignActive))
+
+                Button(action: { formattingDelegate?.setTextAlignment(.right) }) {
+                    Image(systemName: "text.alignright")
+                        .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
+                        .foregroundColor(isRightAlignActive ? .accentColor : .primary)
+                }
+                .buttonStyle(ToolbarButtonStyle(isActive: isRightAlignActive))
             }
+
             
             Divider().frame(height: 20)
             
