@@ -10,6 +10,8 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     @Binding var debouncer: Debouncer
     @Binding var formattingDelegate: TextFormattingDelegate?
     var onSelectionChange: (() -> Void)? = nil
+    var onCoordinatorChange: ((CaretUICoordinator) -> Void)? = nil
+    @Binding var viewUpdater: Bool
     
     private let fontManager = FontManager.shared
 
@@ -29,7 +31,9 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         
         textView.drawsBackground = false 
         textView.backgroundColor = .clear
-
+        // Hide the default system caret
+        textView.insertionPointColor = .clear
+    
         textView.llmInteractionDelegate = context.coordinator
         context.coordinator.managedTextView = textView
 
@@ -38,10 +42,6 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         let scrollView = createScrollView(with: textView)
         
         setupCustomCaret(textView, context: context)
-        DispatchQueue.main.async {
-            textView.window?.makeFirstResponder(textView)
-            context.coordinator.caretCoordinator?.updateCaretPosition(for: textView)
-        }
         
         return scrollView
     }
@@ -71,68 +71,14 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     }
     
     private func setupCustomCaret(_ textView: CustomInlineNSTextView, context: Context) {
-        let caretCoordinator = CaretUICoordinator(audioEngine: audioEngine)
+        let caretCoordinator = CaretUICoordinator(llmEngine: llmEngine, audioEngine: audioEngine)
         context.coordinator.caretCoordinator = caretCoordinator
-        
-        let caretOverlay = caretCoordinator.createCaretOverlay()
-        let menuOverlay = caretCoordinator.createRecordButtonOverlay()
-        let promptOverlay = caretCoordinator.createPromptFieldOverlay()
-        let pauseOverlay = caretCoordinator.createPauseButtonOverlay()
-        let stopOverlay = caretCoordinator.createStopButtonOverlay()
-        let audioWaveformOverlay = caretCoordinator.createAudioWaveformOverlay()
-        let transcriptionOverlay = caretCoordinator.createTranscriptionOverlay()
-        
-        textView.addSubview(caretOverlay)
-        textView.addSubview(menuOverlay)
-        textView.addSubview(promptOverlay)
-        textView.addSubview(pauseOverlay)
-        textView.addSubview(stopOverlay)
-        textView.addSubview(audioWaveformOverlay)
-        textView.addSubview(transcriptionOverlay)
+        onCoordinatorChange?(caretCoordinator)
 
-        caretOverlay.frame = caretCoordinator.caretOverlayFrame()
-        menuOverlay.frame = caretCoordinator.recordButtonFrame()
-        promptOverlay.frame = caretCoordinator.promptFieldFrame()
-        pauseOverlay.frame = caretCoordinator.pauseButtonFrame()
-        stopOverlay.frame = caretCoordinator.stopButtonFrame()
-        audioWaveformOverlay.frame = caretCoordinator.audioWaveformFrame()
-        transcriptionOverlay.frame = caretCoordinator.transcriptionFrame()
-        
         DispatchQueue.main.async {
             caretCoordinator.updateCaretPosition(for: textView)
-            caretOverlay.isHidden = false
         }
-
-        let caretCancellable = caretCoordinator.$caretPosition.combineLatest(caretCoordinator.$caretSize).sink { _, _ in
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.1
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                caretOverlay.animator().frame = caretCoordinator.caretOverlayFrame()
-            }
-        }
-        
-        let menuCancellable = caretCoordinator.$caretPosition
-            .combineLatest(caretCoordinator.$caretSize, caretCoordinator.$isExpanded, caretCoordinator.$isRecording)
-            .sink { _, _, isExpanded, isRecording in
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.15
-                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    menuOverlay.animator().frame = caretCoordinator.recordButtonFrame()
-                    promptOverlay.animator().frame = caretCoordinator.promptFieldFrame()
-                    pauseOverlay.animator().frame = caretCoordinator.pauseButtonFrame()
-                    stopOverlay.animator().frame = caretCoordinator.stopButtonFrame()
-                    audioWaveformOverlay.animator().frame = caretCoordinator.audioWaveformFrame()
-                    transcriptionOverlay.animator().frame = caretCoordinator.transcriptionFrame()
-                }
-            }
-        
-        if context.coordinator.caretCancellables == nil {
-            context.coordinator.caretCancellables = []
-        }
-        context.coordinator.caretCancellables?.append(caretCancellable)
-        context.coordinator.caretCancellables?.append(menuCancellable)
     }
-    
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         DispatchQueue.main.async {
@@ -141,7 +87,9 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         }
         
         guard let textView = nsView.documentView as? CustomInlineNSTextView else { return }
-        
+        // Ensure system caret remains hidden
+        textView.insertionPointColor = .clear
+    
         if textView.committedText() != text && !context.coordinator.isInternallyUpdatingTextBinding {
             textView.clearGhostText()
             llmEngine.abortCurrentSuggestion()
@@ -285,7 +233,6 @@ class Coordinator: NSObject, NSTextViewDelegate {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? CustomInlineNSTextView else { return }
-            caretCoordinator?.updateCaretPosition(for: textView)
             if isProcessingAcceptOrDismiss { return }
             handleTextChange(for: textView)
         }
@@ -349,6 +296,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.parent.onSelectionChange?()
+                self.parent.viewUpdater.toggle()
             }
         }
         
@@ -640,7 +588,7 @@ extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
     }
 
     func dismissSuggestion() {
-        guard let textView = managedTextView, textView.ghostText() != nil else { return }
+        guard let textView = managedTextView else { return }
         performSuggestionDismissal(for: textView)
     }
     
@@ -777,9 +725,8 @@ class CustomInlineNSTextView: NSTextView {
     }
     
     private func notifyDelegate() {
-        if let coord = delegate as? InlineSuggestingTextView.Coordinator {
-            coord.updateCaret()
-        }
+        // Caret position updates are handled by textViewDidChangeSelection only
+        // to prevent race conditions during rapid text changes
     }
 
     override var string: String {
@@ -997,4 +944,3 @@ enum KeyCodes {
     static let rightArrow: UInt16 = 0x7C
     static let escape: UInt16 = 0x35
 }
-

@@ -3,40 +3,43 @@ import Combine
 import AppKit
 
 class NonResponderHostingView<Content: View>: NSHostingView<Content> {
-    override var acceptsFirstResponder: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
 }
 
 class CaretUICoordinator: ObservableObject {
-    @Published var caretPosition: CGPoint = .zero
+    @Published var caretPositionInWindow: CGPoint = .zero
     @Published var caretSize: CGSize = CGSize(width: 2, height: 20)
+    
+    // Basic caret state for coordinate calculations
     @Published var isExpanded: Bool = false
     
-    @Published var isCaretHovered: Bool = false
-    @Published var isCaretPressed: Bool = false
-    
-    @Published var promptText: String = ""
-    @Published var isPromptFieldHovered: Bool = false
-    
+    // Audio engine state (read-only from coordinator perspective)
     @Published var isRecording: Bool = false
     @Published var isPaused: Bool = false
     @Published var transcribedText: String = ""
     @Published var audioLevel: Float = 0.0
 
+    // User input
+    @Published var promptText: String = ""
+
     private var audioEngine: AudioEngine
+    private var llmEngine: LLMEngine
     private let fontManager = FontManager.shared
     private var cancellables = Set<AnyCancellable>()
     
-    private let basePromptFieldWidth: CGFloat = 150
-    private let expandedPromptFieldWidth: CGFloat = 300
-    
+    // Font and size properties from FontManager
     var editorFontSize: CGFloat { fontManager.defaultEditorFontSize }
-    var fixedMenuItemSize: CGFloat { fontManager.menuItemSize }
-    var fixedPromptFieldHeight: CGFloat { fontManager.promptFieldHeight }
-    var fixedPromptFieldFontSize: CGFloat { fontManager.promptFieldFontSize }
+    var menuItemSize: CGFloat { fontManager.menuItemSize }
+    var promptFieldHeight: CGFloat { fontManager.promptFieldHeight }
+    var promptFieldFontSize: CGFloat { fontManager.promptFieldFontSize }
 
-    var caretButtonPadding: CGFloat = 24
+    // Basic layout constants
+    let basePromptFieldWidth: CGFloat = 150
+    let expandedPromptFieldWidth: CGFloat = 300
+    let caretButtonPadding: CGFloat = 24
 
-    init(audioEngine: AudioEngine) {
+    init(llmEngine: LLMEngine, audioEngine: AudioEngine) {
+        self.llmEngine = llmEngine
         self.audioEngine = audioEngine
 
         // Bind AudioEngine properties to CaretUICoordinator properties
@@ -80,55 +83,69 @@ class CaretUICoordinator: ObservableObject {
         let textLength = (textView.string as NSString).length
         let insertionPoint = max(0, min(currentInsertionPoint, textLength))
 
-        var finalCaretX: CGFloat?
-        var finalCaretY: CGFloat?
+        var finalCaretPos: CGPoint?
         var finalCaretHeight: CGFloat?
 
-        let charNSRange = NSRange(location: insertionPoint, length: 0)
-        let screenRect = textView.firstRect(forCharacterRange: charNSRange, actualRange: nil)
-        if screenRect.height > 0, let window = textView.window {
-            let windowRect = window.convertFromScreen(screenRect)
-            let localOrigin = textView.convert(windowRect.origin, from: nil)
-            finalCaretX = localOrigin.x
-            finalCaretY = localOrigin.y
-            finalCaretHeight = screenRect.height
-        }
+        if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: NSRange(location: insertionPoint, length: 0), actualCharacterRange: nil)
+            var localRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
 
-        if let x = finalCaretX, let y = finalCaretY, let height = finalCaretHeight,
-           !x.isNaN, !x.isInfinite, !y.isNaN, !y.isInfinite, !height.isNaN, !height.isInfinite, height > 0 {
-            DispatchQueue.main.async {
-                self.caretPosition = CGPoint(x: x, y: y - height / 2)
-                self.caretSize = CGSize(width: 2, height: height)
+            // The rect is relative to the text container's origin. We need to offset it by that origin
+            // to get it into the textView's coordinate space.
+            let containerOrigin = textView.textContainerOrigin
+            localRect.origin.x += containerOrigin.x
+            localRect.origin.y += containerOrigin.y
+
+            if localRect.height > 0, let window = textView.window, let contentView = window.contentView {
+                // Конвертируем прямоугольник из локальных координат textView в координаты contentView окна
+                let rectInContentView = textView.convert(localRect, to: contentView)
+
+                // Система координат contentView (AppKit) имеет начало в левом нижнем углу.
+                // Система координат SwiftUI ZStack имеет начало в левом верхнем углу.
+                // Нам нужно перевернуть Y.
+                _ = contentView.frame.height
+                
+                // Рассчитываем ЦЕНТР каретки для модификатора .position()
+                let centerX = rectInContentView.origin.x + (rectInContentView.width / 2)
+                // In SwiftUI, origin is top-left but we can use direct y coordinate for ZStack positioning
+                let centerY = rectInContentView.origin.y + (rectInContentView.height / 2)
+
+                finalCaretPos = CGPoint(x: centerX, y: centerY)
+                finalCaretHeight = rectInContentView.height
             }
-        } else {
-            setDefaultCaretPosition(for: textView)
         }
+
+        if let pos = finalCaretPos, let height = finalCaretHeight,
+           !pos.x.isNaN, !pos.x.isInfinite, !pos.y.isNaN, !pos.y.isInfinite, height > 0 {
+            DispatchQueue.main.async {
+                // Проверяем, изменилась ли позиция, чтобы избежать лишних обновлений
+                if self.caretPositionInWindow != pos || self.caretSize.height != height {
+                    self.caretPositionInWindow = pos
+                    self.caretSize = CGSize(width: 2, height: height)
+                    // If the caret moves, collapse the UI.
+                    if self.isExpanded {
+                        self.collapseUI()
+                    }
+                }
+            }
+        }
+        // Больше не сбрасываем позицию на дефолтную при ошибке, чтобы избежать застревания
     }
 
-    private func setDefaultCaretPosition(for textView: NSTextView) {
-        let defaultHeight = textView.font?.pointSize ?? 16
-        DispatchQueue.main.async {
-            self.caretPosition = CGPoint(x: textView.textContainerOrigin.x, y: textView.textContainerOrigin.y + defaultHeight / 2)
-            self.caretSize = CGSize(width: 2, height: defaultHeight)
-        }
-    }
-    
+    // Simple state toggle without animation (views handle their own animations)
     func toggleExpanded() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)) {
-            isExpanded.toggle()
-        }
+        isExpanded.toggle()
     }
     
     func setExpanded(_ expanded: Bool) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)) {
-            isExpanded = expanded
-        }
+        isExpanded = expanded
     }
     
     func collapseUI() {
         setExpanded(false)
     }
     
+    // Audio control delegation
     func startRecording() {
         audioEngine.startRecording()
     }
@@ -141,183 +158,26 @@ class CaretUICoordinator: ObservableObject {
         audioEngine.togglePause()
     }
     
-    var caretColor: Color {
-        if isRecording {
-            return Color.red.opacity(0.7)
-        } else if isCaretHovered {
-            return Color.red
-        } else {
-            return Color.primary
-        }
-    }
-    
-    var caretWidth: CGFloat {
-        if isCaretPressed {
-            return caretSize.width * 1.2
-        } else if isCaretHovered {
-            return caretSize.width * 1.4
-        } else {
-            return caretSize.width
-        }
-    }
-    
-    var caretHeight: CGFloat {
-        return caretSize.height
-    }
-    
-    var shadowColor: Color {
-        if isCaretPressed {
-            return Color.red.opacity(0.4)
-        } else if isCaretHovered {
-            return Color.red.opacity(0.7)
-        } else {
-            return Color.clear
-        }
-    }
-    
-    var shadowRadius: CGFloat {
-        if isCaretPressed {
-            return 5
-        } else if isCaretHovered {
-            return 10
-        } else {
-            return 0
-        }
-    }
-    
-    func caretOverlayFrame() -> CGRect {
-        return CGRect(
-            x: caretPosition.x - 10,
-            y: caretPosition.y - caretSize.height / 2 - 10,
-            width: 20,
-            height: caretSize.height + 20
-        )
-    }
-    
-    func recordButtonFrame() -> CGRect {
-        return CGRect(
-            x: caretPosition.x - caretButtonPadding * 2,
-            y: caretPosition.y - fixedMenuItemSize / 2,
-            width: fixedMenuItemSize,
-            height: fixedMenuItemSize
-        )
-    }
-    
-    func promptFieldFrame() -> CGRect {
-        let promptWidth = promptFieldWidth
-        let promptHeight = calculatePromptFieldHeight()
-        let baseX = caretPosition.x + caretButtonPadding
-        let compensatedX = isPromptFieldExpanded ? baseX - promptFieldWidthOffset : baseX
-
-        return CGRect(
-            x: compensatedX,
-            y: caretPosition.y - promptHeight / 2,
-            width: promptWidth,
-            height: promptHeight
-        )
-    }
-    
+    // Helper function for prompt field height calculation
     func calculatePromptFieldHeight() -> CGFloat {
-        let baseHeight = fixedPromptFieldHeight
-        let maxHeight = baseHeight * 3
-        let padding: CGFloat = 12
+        let font = NSFont.systemFont(ofSize: promptFieldFontSize)
+        let textHeight = promptText.height(withConstrainedWidth: basePromptFieldWidth - 24, font: font)
+        let minHeight = promptFieldHeight
+        let maxHeight = minHeight * 3
+        return max(minHeight, min(textHeight + 12, maxHeight))
+    }
+}
 
-        let textStorage = NSTextStorage(string: promptText)
-        let textContainer = NSTextContainer(size: CGSize(width: promptFieldWidth - 24, height: CGFloat.greatestFiniteMagnitude))
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fixedPromptFieldFontSize)
-        ]
-        textStorage.addAttributes(attributes, range: NSRange(location: 0, length: textStorage.length))
-        
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        
-        let calculatedHeight = ceil(usedRect.height) + padding
-        
-        return min(max(baseHeight, calculatedHeight), maxHeight)
+private extension String {
+    func height(withConstrainedWidth width: CGFloat, font: NSFont) -> CGFloat {
+        let constraintRect = CGSize(width: width, height: .greatestFiniteMagnitude)
+        let boundingBox = self.boundingRect(with: constraintRect, options: .usesLineFragmentOrigin, attributes: [.font: font], context: nil)
+        return ceil(boundingBox.height)
     }
 
-    var isPromptFieldExpanded: Bool {
-        isPromptFieldHovered || !promptText.isEmpty
-    }
-    
-    var promptFieldWidth: CGFloat {
-        return CGFloat(isPromptFieldExpanded ? expandedPromptFieldWidth : basePromptFieldWidth)
-    }
-    
-    var promptFieldWidthOffset: CGFloat {
-        isPromptFieldExpanded ? (expandedPromptFieldWidth - basePromptFieldWidth) / 2 : 0
-    }
-    
-    func createCaretOverlay() -> NonResponderHostingView<SmartCaretView> {
-        let overlay = NonResponderHostingView(rootView: SmartCaretView(coordinator: self))
-        overlay.translatesAutoresizingMaskIntoConstraints = true
-        return overlay
-    }
-    
-    func createRecordButtonOverlay() -> NonResponderHostingView<CaretRecordButton> {
-        let overlay = NonResponderHostingView(rootView: CaretRecordButton(coordinator: self))
-        overlay.translatesAutoresizingMaskIntoConstraints = true
-        return overlay
-    }
-    
-    func createPromptFieldOverlay() -> NonResponderHostingView<CaretPromptField> {
-        let view = CaretPromptField(coordinator: self)
-        let hostingView = NonResponderHostingView(rootView: view)
-        hostingView.translatesAutoresizingMaskIntoConstraints = true
-        return hostingView
-    }
-    
-    func pauseButtonFrame() -> CGRect {
-        return CGRect(
-            x: caretPosition.x - fixedMenuItemSize / 2,
-            y: caretPosition.y - fixedMenuItemSize / 2 - caretButtonPadding,
-            width: fixedMenuItemSize,
-            height: fixedMenuItemSize
-        )
-    }
-    
-    func stopButtonFrame() -> CGRect {
-        let x = caretPosition.x - (fixedMenuItemSize) / 2
-        let y = caretPosition.y + caretButtonPadding
-        return CGRect(x: x, y: y, width: fixedMenuItemSize, height: fixedMenuItemSize)
-    }
-    
-    func audioWaveformFrame() -> CGRect {
-        let width: CGFloat = 150
-        let x = caretPosition.x + caretButtonPadding
-        let y = caretPosition.y - (fixedMenuItemSize + 12) / 2
-        return CGRect(x: x, y: y, width: width, height: fixedMenuItemSize + 12)
-    }
-    
-    func transcriptionFrame() -> CGRect {
-        let width: CGFloat = 150
-        let x = caretPosition.x - width - caretButtonPadding
-        let y = caretPosition.y - (fixedMenuItemSize + 12) / 2
-        return CGRect(x: x, y: y, width: width, height: fixedMenuItemSize + 12)
-    }
-    
-    func createPauseButtonOverlay() -> NonResponderHostingView<CaretPauseButton> {
-        let view = CaretPauseButton(coordinator: self)
-        return NonResponderHostingView(rootView: view)
-    }
-    
-    func createStopButtonOverlay() -> NonResponderHostingView<CaretStopButton> {
-        let view = CaretStopButton(coordinator: self)
-        return NonResponderHostingView(rootView: view)
-    }
-    
-    func createAudioWaveformOverlay() -> NonResponderHostingView<AudioWaveformView> {
-        let view = AudioWaveformView(coordinator: self)
-        return NonResponderHostingView(rootView: view)
-    }
-    
-    func createTranscriptionOverlay() -> NonResponderHostingView<TranscriptionView> {
-        let view = TranscriptionView(coordinator: self)
-        return NonResponderHostingView(rootView: view)
+    func width(withConstrainedHeight height: CGFloat, font: NSFont) -> CGFloat {
+        let constraintRect = CGSize(width: .greatestFiniteMagnitude, height: height)
+        let boundingBox = self.boundingRect(with: constraintRect, options: .usesLineFragmentOrigin, attributes: [.font: font], context: nil)
+        return ceil(boundingBox.width)
     }
 }

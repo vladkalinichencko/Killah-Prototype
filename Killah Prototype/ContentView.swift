@@ -49,6 +49,8 @@ struct ContentView: View {
     @State private var isItalicActive = false
     @State private var isUnderlineActive = false
     @State private var isStrikethroughActive = false
+    @State private var caretCoordinator: CaretUICoordinator?
+    @State private var viewUpdater: Bool = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -63,7 +65,13 @@ struct ContentView: View {
                 audioEngine: audioEngine,
                 debouncer: $debouncer,
                 formattingDelegate: $textFormattingDelegate,
-                onSelectionChange: updateToolbarStates
+                onSelectionChange: updateToolbarStates,
+                onCoordinatorChange: { coordinator in
+                    DispatchQueue.main.async {
+                        self.caretCoordinator = coordinator
+                    }
+                },
+                viewUpdater: $viewUpdater
             )
 
             // Floating toolbar with system white background
@@ -75,8 +83,12 @@ struct ContentView: View {
                 isStrikethroughActive: isStrikethroughActive
             )
                 .zIndex(1)
-                .padding(.top, 10)
+                .padding(.top, 20)
                 .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
+            
+            if let coordinator = caretCoordinator {
+                caretOverlays(coordinator: coordinator)
+            }
         }
         .onAppear {
             llmEngine.startEngine()
@@ -90,5 +102,52 @@ struct ContentView: View {
         isItalicActive = delegate.isItalicActive()
         isUnderlineActive = delegate.isUnderlineActive()
         isStrikethroughActive = delegate.isStrikethroughActive()
+    }
+    
+    @ViewBuilder
+    private func caretOverlays(coordinator: CaretUICoordinator) -> some View {
+        let verticalAdjustment: CGFloat = 5
+        let baseY = coordinator.caretPositionInWindow.y - coordinator.caretSize.height - verticalAdjustment
+        let baseX = coordinator.caretPositionInWindow.x - 5
+        
+        ZStack {
+            if coordinator.isRecording {
+                Color.black.opacity(0.1)
+                    .edgesIgnoringSafeArea(.all)
+                    .contentShape(Rectangle())
+                    .onTapGesture { }
+            }
+            
+            SmartCaretView(coordinator: coordinator)
+                .position(x: coordinator.caretPositionInWindow.x, y: baseY)
+                .zIndex(0)
+            
+            CaretRecordButton(coordinator: coordinator)
+                .position(x: baseX - coordinator.caretButtonPadding, y: baseY)
+                .zIndex(2)
+            
+            CaretPromptField(coordinator: coordinator)
+                .position(x: baseX + coordinator.caretButtonPadding + coordinator.basePromptFieldWidth / 2, y: baseY)
+                .zIndex(2)
+            
+            CaretPauseButton(coordinator: coordinator)
+                .position(x: coordinator.caretPositionInWindow.x,
+                          y: baseY - coordinator.caretButtonPadding)
+                .zIndex(2)
+            
+            CaretStopButton(coordinator: coordinator)
+                .position(x: coordinator.caretPositionInWindow.x,
+                          y: baseY + coordinator.caretButtonPadding + 15)
+                .zIndex(2)
+            
+            AudioWaveformView(coordinator: coordinator)
+                .position(x: baseX + 8 + 150 / 2, y: baseY)
+                .zIndex(2)
+            
+            TranscriptionView(coordinator: coordinator)
+                .position(x: baseX - coordinator.caretButtonPadding - 200 / 2, y: baseY)
+                .zIndex(2)
+        }
+        .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), value: coordinator.caretPositionInWindow)
     }
 }

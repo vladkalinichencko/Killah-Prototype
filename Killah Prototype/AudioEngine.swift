@@ -24,6 +24,7 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
 
     // Use AVCaptureSession to trigger macOS microphone indicator
     private var captureSession: AVCaptureSession?
+    private var isStopping = false
 
     override init() {
         super.init()
@@ -66,7 +67,6 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
 
     func startRecording() {
         guard !isRecording else { return }
-        print("Starting recording process...")
         
         // Force microphone permission request
         requestMicrophonePermission { [weak self] granted in
@@ -97,15 +97,12 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     }
     
     private func performRecording() {
-        print("Attempting to access microphone...")
         // Start AVCaptureSession to trigger system mic indicator
         captureSession?.startRunning()
         
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         
-        print("Audio format: \(recordingFormat)")
-
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else {
             print("Failed to create recognition request")
@@ -136,29 +133,20 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
             }
 
             if isFinal {
-                print("Transcription completed")
                 self.updateDisplayedTranscription() // Perform one final update
                 self.stopRecording()
             }
         }
 
-        print("Installing tap on input node...")
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, when) in
             guard let self = self, !self.isPaused else { return }
-            
-            // Debug: Check if we're actually receiving audio data
-            if buffer.frameLength > 0 {
-                // print("Received audio buffer with \(buffer.frameLength) frames")
-            }
             
             self.recognitionRequest?.append(buffer)
             self.updateAudioLevel(buffer: buffer)
         }
 
-        print("Starting audio engine...")
         do {
             try audioEngine.start()
-            print("Audio engine started successfully")
             DispatchQueue.main.async {
                 self.isRecording = true
                 self.isPaused = false
@@ -170,7 +158,6 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
                 self.transcriptionUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
                     self?.updateDisplayedTranscription()
                 }
-                print("Recording state updated: isRecording = true")
             }
         } catch {
             print("Could not start audio engine: \(error.localizedDescription)")
@@ -183,7 +170,9 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     }
 
     func stopRecording() {
-        guard isRecording else { return }
+        guard isRecording, !isStopping else { return }
+
+        isStopping = true
 
         transcriptionUpdateTimer?.invalidate()
         transcriptionUpdateTimer = nil
@@ -204,6 +193,7 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         DispatchQueue.main.async {
             self.isRecording = false
             self.isPaused = false
+            self.isStopping = false
         }
         audioFilePath = nil
     }
@@ -243,11 +233,6 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         let maxDb: Float = 0.0
         var normalizedLevel = (avgPower - minDb) / (maxDb - minDb)
         normalizedLevel = max(0.0, min(1.0, normalizedLevel))
-
-        // Debug: Print audio level occasionally to verify we're getting data
-        if Int.random(in: 1...100) == 1 { // Print 1% of the time to avoid spam
-            print("Audio level: \(normalizedLevel), RMS: \(rms), Power: \(avgPower)")
-        }
 
         DispatchQueue.main.async {
             // Apply a smoothing factor to prevent jerky movements
