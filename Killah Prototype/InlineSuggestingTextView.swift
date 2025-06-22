@@ -22,6 +22,11 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         
         textView.delegate = context.coordinator
         textView.font = fontManager.defaultEditorFont()
+        
+        let defaultPS = NSMutableParagraphStyle()
+        defaultPS.alignment = .left
+        textView.defaultParagraphStyle = defaultPS
+        textView.typingAttributes[.paragraphStyle] = defaultPS
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -41,6 +46,8 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         DispatchQueue.main.async {
             textView.window?.makeFirstResponder(textView)
             context.coordinator.caretCoordinator?.updateCaretPosition(for: textView)
+            self.onSelectionChange?()
+
         }
         
         return scrollView
@@ -197,7 +204,9 @@ class Coordinator: NSObject, NSTextViewDelegate {
         private enum FormattingCheck {
             case symbolicTrait(NSFontDescriptor.SymbolicTraits)
             case attribute(key: NSAttributedString.Key, value: AnyHashable)
+            case paragraphList(marker: NSTextList.MarkerFormat)
         }
+
     
         private func isActive(_ check: FormattingCheck) -> Bool {
             guard let textView = managedTextView else { return false }
@@ -208,6 +217,8 @@ class Coordinator: NSObject, NSTextViewDelegate {
                 return fontTraitActive(in: range, trait: trait)
             case .attribute(let key, let value):
                 return attributeActive( in: range, key: key, value: value )
+            case .paragraphList(let marker):
+                return paragraphListActive(in: range, markerFormat: marker)
             }
         }
 
@@ -222,16 +233,55 @@ class Coordinator: NSObject, NSTextViewDelegate {
     
         func isUnderlineActive() -> Bool {
             return isActive(.attribute(key: .underlineStyle,
-                                        value: NSUnderlineStyle.single.rawValue))
+                                       value: NSUnderlineStyle.single.rawValue))
         }
     
         func isStrikethroughActive() -> Bool {
             return isActive(.attribute(key: .strikethroughStyle,
-                                        value: NSUnderlineStyle.single.rawValue))
+                                       value: NSUnderlineStyle.single.rawValue))
+        }
+            
+        private func paragraphListActive(in range: NSRange,
+                                         markerFormat: NSTextList.MarkerFormat) -> Bool {
+            guard let textView = managedTextView else { return false }
+            let nsText = textView.string as NSString
+            // префикс, по которому проверяем начало параграфа
+            let marker = NSTextList(markerFormat: markerFormat, options: 0)
+            let prefix = marker.marker(forItemNumber: 1) + " "
+
+            // 1) Если есть выделение — пробегаем по абзацам и смотрим, есть ли хоть один с правильным префиксом
+            if range.length > 0 {
+                var found = false
+                nsText.enumerateSubstrings(in: range, options: .byParagraphs) { _, paraRange, _, stop in
+                    let paragraph = nsText.substring(with: paraRange)
+                    if paragraph.hasPrefix(prefix) {
+                        found = true
+                        stop.pointee = true
+                    }
+                }
+                return found
+            }
+
+            // 2) Нет выделения — берём текущий абзац под курсором и проверяем его начало
+            let loc = max(range.location, 0)
+            let paraRange = nsText.paragraphRange(for: NSRange(location: loc, length: 0))
+            let paragraph = nsText.substring(with: paraRange)
+            return paragraph.hasPrefix(prefix)
         }
 
 
-        // MARK: – Проверка шрифтовых traits (bold/italic)
+        func isBulletListActive() -> Bool {
+            // if managedTextView is nil, fall back to empty range (0,0)
+            let range = managedTextView?.selectedRange() ?? NSRange(location: 0, length: 0)
+            return paragraphListActive(in: range, markerFormat: .disc)
+        }
+
+        func isNumberedListActive() -> Bool {
+            let range = managedTextView?.selectedRange() ?? NSRange(location: 0, length: 0)
+            return paragraphListActive(in: range, markerFormat: .decimal)
+        }
+
+        // MARK: – Проверка шрифтовых traits (bold/italic)Add commentMore actions
         private func fontTraitActive(in range: NSRange,
                                      trait: NSFontDescriptor.SymbolicTraits) -> Bool {
             guard let textView = managedTextView else { return false }
@@ -280,8 +330,28 @@ class Coordinator: NSObject, NSTextViewDelegate {
             }
             return false
         }
-
-
+        
+        private func isAlignmentActive(_ alignment: NSTextAlignment) -> Bool {
+            guard let tv = managedTextView else { return false }
+            let range = tv.selectedRange
+            
+            // 1) Если есть выделение — смотрим стиль первого символа
+            if range.length > 0,
+               let ps = tv.textStorage?
+                     .attribute(.paragraphStyle, at: range.location, effectiveRange: nil)
+                     as? NSParagraphStyle {
+                return ps.alignment == alignment
+            }
+            // 2) Нет выделения — смотрим typingAttributes
+            if let ps = tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle {
+                return ps.alignment == alignment
+            }
+            return alignment == .left
+        }
+        
+        func isLeftAlignActive() -> Bool { isAlignmentActive(.left) }
+        func isCenterAlignActive() -> Bool { isAlignmentActive(.center) }
+        func isRightAlignActive() -> Bool { isAlignmentActive(.right) }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? CustomInlineNSTextView else { return }
@@ -541,6 +611,45 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
                         toggledValue: NSColor.yellow)
     }
     
+    func toggleParagraphList(marker: NSTextList.MarkerFormat) {
+        // TODO
+        DispatchQueue.main.async { [weak self] in
+            self?.parent.onSelectionChange?()
+        }
+    }
+
+    func toggleBulletList() {
+      toggleParagraphList(marker: .disc)
+    }
+    func toggleNumberedList() {
+      toggleParagraphList(marker: .decimal)
+    }
+    
+    func setTextAlignment(_ alignment: NSTextAlignment) {
+        guard let tv = managedTextView else { return }
+        
+        // 1) Находим текущий параграф
+        let ns = tv.string as NSString
+        let sel = tv.selectedRange
+        let paraRange = ns.paragraphRange(for: NSRange(location: sel.location, length: 0))
+        
+        // 2) Готовим новый NSMutableParagraphStyle
+        let currentPS = (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?
+                            .mutableCopy() as? NSMutableParagraphStyle
+                        ?? NSMutableParagraphStyle()
+        currentPS.alignment = alignment
+        
+        // 3) Применяем к тексту и typingAttributes
+        tv.textStorage?.addAttribute(.paragraphStyle, value: currentPS, range: paraRange)
+        tv.typingAttributes[.paragraphStyle] = currentPS
+        
+        // 4) Обновляем состояние кнопок и каретки
+        DispatchQueue.main.async {
+            self.parent.onSelectionChange?()
+            self.caretCoordinator?.updateCaretPosition(for: tv)
+        }
+    }
+    
     /// Generic helper for line-based operations
     private func modifyLine(_ modifier: (String) -> String) {
         guard let textView = managedTextView else { return }
@@ -554,30 +663,6 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         textView.textStorage?.replaceCharacters(in: lineRange, with: newLine)
     }
 
-    func toggleBulletList() {
-        modifyLine { line in
-            line.hasPrefix("• ") ? String(line.dropFirst(2)) : "• " + line
-        }
-    }
-    
-    func toggleNumberedList() {
-        modifyLine { line in
-            let numberPattern = #"^\d+\.\s+"#
-            if line.range(of: numberPattern, options: .regularExpression) != nil {
-                return line.replacingOccurrences(of: numberPattern, with: "", options: .regularExpression)
-            } else {
-                return "1. " + line
-            }
-        }
-    }
-    
-    func setTextAlignment(_ alignment: NSTextAlignment) {
-        modifyAttribute(.paragraphStyle) { (current: NSParagraphStyle?) -> NSParagraphStyle in
-            let paragraphStyle = (current?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-            paragraphStyle.alignment = alignment
-            return paragraphStyle
-        }
-    }
     
     
     /// Generic helper for font operations

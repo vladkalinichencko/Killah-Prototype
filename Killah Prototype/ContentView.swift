@@ -29,6 +29,11 @@ protocol TextFormattingDelegate: AnyObject {
     func isItalicActive() -> Bool
     func isUnderlineActive() -> Bool
     func isStrikethroughActive() -> Bool
+    func isBulletListActive() -> Bool
+    func isNumberedListActive() -> Bool
+    func isLeftAlignActive() -> Bool
+    func isCenterAlignActive() -> Bool
+    func isRightAlignActive() -> Bool
     func toggleBulletList()
     func toggleNumberedList()
     func setTextAlignment(_ alignment: NSTextAlignment)
@@ -49,6 +54,11 @@ struct ContentView: View {
     @State private var isItalicActive = false
     @State private var isUnderlineActive = false
     @State private var isStrikethroughActive = false
+    @State private var isBulletActive = false
+    @State private var isNumberedActive = false
+    @State private var isLeftAlignActive   = true
+    @State private var isCenterAlignActive = false
+    @State private var isRightAlignActive  = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -72,14 +82,19 @@ struct ContentView: View {
                 isBoldActive: isBoldActive,
                 isItalicActive: isItalicActive,
                 isUnderlineActive: isUnderlineActive,
-                isStrikethroughActive: isStrikethroughActive
+                isStrikethroughActive: isStrikethroughActive,
+                isBulletActive: isBulletActive,
+                isNumberedActive: isNumberedActive,
+                isLeftAlignActive: isLeftAlignActive,
+                isCenterAlignActive: isCenterAlignActive,
+                isRightAlignActive: isRightAlignActive
             )
                 .zIndex(1)
                 .padding(.top, 10)
                 .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
         }
         .onAppear {
-            llmEngine.startEngine()
+//            llmEngine.startEngine()
             updateToolbarStates()
         }
     }
@@ -90,5 +105,23 @@ struct ContentView: View {
         isItalicActive = delegate.isItalicActive()
         isUnderlineActive = delegate.isUnderlineActive()
         isStrikethroughActive = delegate.isStrikethroughActive()
+        isBulletActive   = delegate.isBulletListActive()
+        isNumberedActive = delegate.isNumberedListActive()
+        isLeftAlignActive   = delegate.isLeftAlignActive()
+        isCenterAlignActive = delegate.isCenterAlignActive()
+        isRightAlignActive  = delegate.isRightAlignActive()
+    }
+}
+
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView(
+            // 1) Binding-заглушка для документа
+            document: .constant(TextDocument())
+        )
+        // 2) Прокидываем оба environmentObject
+        .environmentObject(LLMEngine())
+        .environmentObject(AudioEngine())
     }
 }
