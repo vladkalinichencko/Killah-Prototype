@@ -119,7 +119,7 @@ struct ContentView: View {
         let baseX = coordinator.caretPositionInWindow.x - 5
         
         ZStack {
-            if coordinator.isRecording {
+            if coordinator.shouldShowOverlay {
                 Color.black.opacity(0.1)
                     .edgesIgnoringSafeArea(.all)
                     .contentShape(Rectangle())
@@ -175,12 +175,13 @@ struct ContentView: View {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView(
+        let llmEngine = LLMEngine()
+        return ContentView(
             // 1) Binding-заглушка для документа
             document: .constant(TextDocument())
         )
         // 2) Прокидываем оба environmentObject
-        .environmentObject(LLMEngine())
-        .environmentObject(AudioEngine())
+        .environmentObject(llmEngine)
+        .environmentObject(AudioEngine(llmEngine: llmEngine))
     }
 }

@@ -9,7 +9,7 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     @Published var isPaused = false
     @Published var transcribedText = ""
     @Published var audioLevel: Float = 0.0
-    
+    @Published var isProcessingAudio = false
     
     private var savedAudioFilePath: URL?
     private var audioEngine: AVAudioEngine!
@@ -85,8 +85,9 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     func startRecording() {
         guard !isRecording else { return }
         print("Starting recording process...")
-        
-        //llmEngine.abortSuggestion(for: "audio", notifyPython: true)
+        // Abort any previous audio suggestion and start the Python audio engine
+        llmEngine.abortSuggestion(for: "audio", notifyPython: true)
+        llmEngine.startEngine(for: "audio")
 
         // Force microphone permission request
         requestMicrophonePermission { [weak self] granted in
@@ -282,7 +283,6 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
             self.audioFilePath = nil
             self.savedAudioFilePath = nil
         }
-    }
 
     func togglePause() {
         guard isRecording else { return }
@@ -352,55 +352,75 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
             print("No audio file available to process")
             return
         }
-        
-        let checkInterval: TimeInterval = 0.1
-        var attempts = 50
-        print("Checking audio.py state for processing %s", audioFilePath.path)
-        
-        func trySendData() {
-            let runnerState = llmEngine.getRunnerState(for: "audio")
-            print("Current audio.py state: %s", String(describing: runnerState))
-            if runnerState == .running {
-                llmEngine.generateSuggestion(
+
+        // Указываем, что начинается обработка аудио
+        DispatchQueue.main.async {
+            self.isProcessingAudio = true
+        }
+
+        // Вся обработка выносится в фоновый поток, чтобы не блокировать UI
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            let checkInterval: TimeInterval = 0.1
+            let maxAttempts = 50
+            var attempts = 0
+
+            // В цикле ждем, пока Python-скрипт не будет готов к работе.
+            // Это ожидание происходит в фоновом потоке.
+            while self.llmEngine.getRunnerState(for: "audio") != .running && attempts < maxAttempts {
+                Thread.sleep(forTimeInterval: checkInterval) // Пауза в фоновом потоке
+                attempts += 1
+            }
+
+            // Проверяем, запустился ли движок после ожидания
+            if self.llmEngine.getRunnerState(for: "audio") == .running {
+                // Если да, то вызываем ресурсоемкую функцию `generateSuggestion`.
+                // Она также будет выполняться в этом фоновом потоке.
+                self.llmEngine.generateSuggestion(
                     for: "audio",
                     prompt: audioFilePath.path,
                     tokenStreamCallback: { token in
-                        print("Audio token received: %s", token)
+                        // Коллбэки могут приходить в любом потоке,
+                        // поэтому для любых обновлений UI лучше явно переключаться в главный поток.
+                        DispatchQueue.main.async {
+                             print("Audio token received: \(token)")
+                        }
                     },
-                    onComplete: { [weak self] result in
-                        guard self != nil else { return }
-                        switch result {
-                        case .success(let output):
-                            print("Audio processing completed: %s", output)
-                            // Удаляем аудиофайл после успешной обработки
-                            do {
-                                try FileManager.default.removeItem(at: audioFilePath)
-                                print("✅ Audio file deleted: \(audioFilePath.path)")
-                            } catch {
-                                print("❌ Failed to delete audio file \(audioFilePath.path): \(error)")
+                    onComplete: { result in
+                        // Когда обработка завершена, переключаемся обратно в главный поток,
+                        // чтобы безопасно обновить UI и обработать результат.
+                        DispatchQueue.main.async {
+                            print("✅ [MAIN THREAD] onComplete handler started.")
+                            // Сбрасываем состояние обработки аудио
+                            self.isProcessingAudio = false
+                            switch result {
+                            case .success(let output):
+                                print("Audio processing completed: \(output)")
+                                do {
+                                    // Удаляем временный файл после успешной обработки
+                                    try FileManager.default.removeItem(at: audioFilePath)
+                                    print("✅ Audio file deleted: \(audioFilePath.path)")
+                                } catch {
+                                    print("❌ Failed to delete audio file \(audioFilePath.path): \(error)")
+                                }
+                            case .failure(let error):
+                                print("Audio processing failed: \(error.localizedDescription)")
+                                print("Failed to process audio: \(error.localizedDescription)")
                             }
-                        case .failure(let error):
-                            print("Audio processing failed: %s", error.localizedDescription)
-                            DispatchQueue.main.async {
-                                print("Failed to process audio: %s", error.localizedDescription)
-                            }
+                            print("✅ [MAIN THREAD] onComplete handler finished.")
                         }
                     }
                 )
-            } else if attempts > 0 {
-                attempts -= 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + checkInterval) {
-                    trySendData()
-                }
             } else {
-                print("❌ audio.py failed to reach running state after %.1f seconds", 50 * checkInterval)
+                // Если движок так и не запустился, сообщаем об этом в главный поток.
                 DispatchQueue.main.async {
+                    // Сбрасываем состояние обработки аудио
+                    self.isProcessingAudio = false
+                    print("❌ audio.py failed to reach running state after %.1f seconds", Double(maxAttempts) * checkInterval)
                     print("Audio processing engine not ready")
                 }
             }
         }
-        
-        trySendData()
     }
-        
 }
