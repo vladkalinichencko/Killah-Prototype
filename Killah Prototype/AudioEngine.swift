@@ -257,32 +257,32 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
             self.isStopping = false
         }
         audioFilePath = nil
-            if let path = self.savedAudioFilePath ?? self.audioFilePath {
-                print("Audio file path: \(path.absoluteString)")
-                if FileManager.default.fileExists(atPath: path.path) {
-                    print("✅ Audio file exists at: \(path.absoluteString)")
-                    do {
-                        let attributes = try FileManager.default.attributesOfItem(atPath: path.path)
-                        let fileSize = attributes[.size] as? Int64 ?? 0
-                        print("File size: \(fileSize) bytes")
-                        if fileSize > 44 { // WAV заголовок ~44 байта
-                            self.audioFilePath = path // Восстанавливаем путь
-                            self.processAudioFileWithPython()
-                        } else {
-                            print("⚠️ Audio file is too small (likely empty): \(fileSize) bytes")
-                        }
-                    } catch {
-                        print("❌ Error checking file attributes: \(error)")
+        if let path = self.savedAudioFilePath ?? self.audioFilePath {
+            print("Audio file path: \(path.absoluteString)")
+            if FileManager.default.fileExists(atPath: path.path) {
+                print("✅ Audio file exists at: \(path.absoluteString)")
+                do {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: path.path)
+                    let fileSize = attributes[.size] as? Int64 ?? 0
+                    print("File size: \(fileSize) bytes")
+                    if fileSize > 44 { // WAV заголовок ~44 байта
+                        self.audioFilePath = path // Восстанавливаем путь
+                        self.processAudioFileWithPython()
+                    } else {
+                        print("⚠️ Audio file is too small (likely empty): \(fileSize) bytes")
                     }
-                } else {
-                    print("❌ Audio file does NOT exist at: \(path.absoluteString)")
+                } catch {
+                    print("❌ Error checking file attributes: \(error)")
                 }
             } else {
-                print("❌ Both savedAudioFilePath and audioFilePath are nil")
+                print("❌ Audio file does NOT exist at: \(path.absoluteString)")
             }
-            self.audioFilePath = nil
-            self.savedAudioFilePath = nil
+        } else {
+            print("❌ Both savedAudioFilePath and audioFilePath are nil")
         }
+        self.audioFilePath = nil
+        self.savedAudioFilePath = nil
+    }
 
     func togglePause() {
         guard isRecording else { return }
