@@ -214,6 +214,8 @@ print("Entering main processing loop.", flush=True)
 current_prompt = None
 interrupted = False
 
+
+# --- Фикс: корректная обработка прерывания генерации ---
 while True:
     try:
         readable, _, _ = select.select([sys.stdin], [], [], 0.05)
@@ -228,7 +230,7 @@ while True:
 
             if new_prompt:
                 current_prompt = new_prompt
-                interrupted = True
+                interrupted = True  # <-- выставляем флаг прерывания
             else:
                 current_prompt = None
                 interrupted = True
@@ -236,19 +238,22 @@ while True:
         if current_prompt:
             prompt_to_process = current_prompt
             current_prompt = None
-            interrupted = False
+            interrupted = False  # <-- Сброс сразу после взятия prompt
 
             if prompt_to_process:
                 print("Streaming suggestions...", flush=True)
                 suggestions = generate_suggestions(prompt_to_process)
-                
                 for suggestion in suggestions:
                     if interrupted:
+                        print("INTERRUPTED", file=sys.stderr, flush=True)
                         break
                     words = suggestion.split()
                     for word in words:
+                        if interrupted:
+                            print("INTERRUPTED", file=sys.stderr, flush=True)
+                            break
                         print(word + " ", flush=True)
-                        time.sleep(0.07) # Adjust for other time interval
+                        time.sleep(0.07)
 
                 if not interrupted:
                     print("END_SUGGESTIONS", flush=True)
