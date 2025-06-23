@@ -92,8 +92,8 @@ if __name__ == "__main__":
         try:
             file_path = sys.stdin.readline().strip()
             if not file_path:
-                print("Empty input received, exiting.", file=sys.stderr, flush=True)
-                break
+                print("Empty input received, continuing.", file=sys.stderr, flush=True)
+                continue
             print(f"Received audio file path: {file_path}", file=sys.stderr, flush=True)
             result = process_audio_file(file_path)
             if result is None:

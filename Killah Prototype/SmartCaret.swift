@@ -54,9 +54,16 @@ struct SmartCaretView: View {
                         x: animatedShadowOffset.width,
                         y: animatedShadowOffset.height)
                 .offset(x: caretXOffset)
-                .onReceive(llmEngine.$engineState) { state in
-                    if state == .running {
+                .onChange(of: coordinator.triggerCaretEffect) { _, newValue in
+                    if newValue {
                         triggerGenerationEffect()
+                        coordinator.triggerCaretEffect = false
+                    }
+                }
+                .onChange(of: coordinator.triggerCancellationEffect) { _, newValue in
+                    if newValue {
+                        triggerCancellationEffect()
+                        coordinator.triggerCancellationEffect = false
                     }
                 }
                 .allowsHitTesting(false)
@@ -136,14 +143,33 @@ struct SmartCaretView: View {
     
     // Animation effects
     private func triggerGenerationEffect() {
-        // Forward bounce
+        // Forward bounce (right)
         withAnimation(.easeOut(duration: 0.12)) {
             caretXOffset = 5
             animatedShadowColor = Color.cyan.opacity(0.7)
             animatedShadowRadius = 8
             animatedShadowOffset = CGSize(width: 5, height: 2)
         }
-        
+        // Return to normal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                caretXOffset = 0
+                animatedShadowColor = .clear
+                animatedShadowRadius = 0
+                animatedShadowOffset = .zero
+            }
+        }
+    }
+
+    private func triggerCancellationEffect() {
+        print("Triggering cancellation effect")
+        // Backward bounce (left)
+        withAnimation(.easeOut(duration: 0.12)) {
+            caretXOffset = -5
+            animatedShadowColor = Color.red.opacity(0.7)
+            animatedShadowRadius = 8
+            animatedShadowOffset = CGSize(width: -5, height: 2)
+        }
         // Return to normal
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
@@ -164,7 +190,11 @@ struct CaretRecordButton: View {
     
     var body: some View {
         Button(action: {
-            coordinator.startRecording()
+            if coordinator.isRecording {
+                coordinator.stopRecording()
+            } else {
+                coordinator.startRecording()
+            }
         }) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
@@ -287,7 +317,6 @@ struct CaretPromptField: View {
     
     // Unified animation
     private let caretUIAnimation = Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)
-    
     var body: some View {
         TextField("Ask lil Pushkin", text: $coordinator.promptText, axis: .vertical)
             .font(.system(size: coordinator.promptFieldFontSize))
@@ -352,8 +381,6 @@ struct CaretPromptField: View {
     }
     
     private var promptFieldExpansionOffset: CGFloat {
-        // When the field expands, shift it right by half the expansion amount
-        // so it appears to expand from the left side (field grows to the right)
         let expansion = promptFieldWidth - coordinator.basePromptFieldWidth
         return expansion / 2
     }
@@ -475,7 +502,7 @@ struct TranscriptionView: View {
     
     @State private var displayedWords: [Word] = []
     @State private var opacity: Double = 0
-    @State private var transcriptionTimer: Timer?
+    @State private var inactivityTimer: Timer?
     @Environment(\.colorScheme) private var colorScheme
     
     private let caretUIAnimation = Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)
@@ -510,45 +537,49 @@ struct TranscriptionView: View {
                 endPoint: .trailing
             )
         )
+        .scaleEffect(x: coordinator.isRecording ? 1.0 : 0.1, anchor: .trailing)
+        .offset(x: coordinator.isRecording ? 0 : 20)
         .opacity(opacity)
-        .onChange(of: coordinator.transcribedText) { oldValue, newValue in
-            let words = newValue.split(separator: " ").map { String($0) }
-            let lastThree = Array(words.suffix(3))
-            
-            // Only update if the actual words have changed
-            if lastThree != displayedWords.map({ $0.text }) {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.2)) {
-                    // Create new Word items to ensure ForEach detects the change
-                    displayedWords = lastThree.map { Word(text: $0) }
-                    opacity = displayedWords.isEmpty ? 0 : 1.0
-                }
-                
-                // Invalidate the old timer and start a new one
-                transcriptionTimer?.invalidate()
-                if !displayedWords.isEmpty {
-                    transcriptionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
-                        withAnimation(.easeOut(duration: 1.5)) {
-                            opacity = 0
-                        }
-                    }
-                }
-            }
-        }
-        .onChange(of: coordinator.isRecording) { _, isRecording in
-            if !isRecording {
-                transcriptionTimer?.invalidate()
-                withAnimation(.easeOut(duration: 0.3)) {
-                    opacity = 0
-                }
-            }
-        }
         .onAppear {
-            if coordinator.isRecording && coordinator.transcribedText.isEmpty {
+            if coordinator.isRecording {
                 withAnimation {
                     opacity = 1.0
                 }
             }
         }
+        .onChange(of: coordinator.transcribedText) { oldValue, newValue in
+            guard coordinator.isRecording else { return }
+            let words = newValue.split(separator: " ").map { String($0) }
+            let lastThree = Array(words.suffix(3))
+            if lastThree != displayedWords.map({ $0.text }) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.2)) {
+                    displayedWords = lastThree.map { Word(text: $0) }
+                    opacity = 1.0
+                }
+                inactivityTimer?.invalidate()
+                inactivityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+                    withAnimation(.easeOut(duration: 1.5)) {
+                        opacity = 0
+                    }
+                }
+            }
+        }
+        .onChange(of: coordinator.isRecording) { _, isRecording in
+            inactivityTimer?.invalidate()
+            if !isRecording {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    opacity = 0
+                }
+            } else {
+                withAnimation {
+                    opacity = 1.0
+                }
+            }
+        }
+        .animation(
+            caretUIAnimation,
+            value: coordinator.isRecording
+        )
         .allowsHitTesting(false)
     }
     
@@ -576,9 +607,5 @@ struct TranscriptionView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(maxWidth: 270, minHeight: coordinator.menuItemSize, alignment: .trailing)
-        .opacity(opacity)
-        .scaleEffect(x: opacity > 0 ? 1.0 : 0.1, anchor: .trailing)
-        .offset(x: opacity > 0 ? 0 : 20)
-        .animation(caretUIAnimation, value: opacity)
     }
 }

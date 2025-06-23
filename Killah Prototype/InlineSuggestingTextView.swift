@@ -99,7 +99,6 @@ struct InlineSuggestingTextView: NSViewRepresentable {
             textView.clearGhostText()
             llmEngine.abortSuggestion(for: "autocomplete")
             textView.string = text
-            textView.selectedRange = NSRange(location: text.utf16.count, length: 0)
             DispatchQueue.main.async {
                 context.coordinator.caretCoordinator?.updateCaretPosition(for: textView)
             }
@@ -349,11 +348,17 @@ class Coordinator: NSObject, NSTextViewDelegate {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? CustomInlineNSTextView else { return }
             
+            // Не обновляем позицию каретки, если есть призрачный текст
+            // Это предотвращает "прыжки" каретки при появлении автодополнений
+            if textView.ghostText() != nil {
+                return
+            }
+            
             let selectedRange = textView.selectedRange
             let charIndex: Int
             
             if selectedRange.length > 0 {
-                charIndex = selectedRange.location
+                charIndex = NSMaxRange(selectedRange)
             } else {
                 charIndex = textView.lastMouseUpCharIndex ?? selectedRange.location
             }
@@ -383,9 +388,11 @@ class Coordinator: NSObject, NSTextViewDelegate {
 
             llmEngine.generateSuggestion(
                 for: "autocomplete",
-                prompt: currentPromptForLLM) { [weak textView] token in
+                prompt: currentPromptForLLM) { [weak self, weak textView] token in
                 DispatchQueue.main.async {
                     textView?.appendGhostTextToken(token)
+                    // Триггерим caret-эффект при каждом появлении ghost text
+                    self?.caretCoordinator?.triggerCaretGenerationEffect()
                 }
             } onComplete: { [weak textView] result in
                 DispatchQueue.main.async {
@@ -669,11 +676,13 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
 extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
     func acceptSuggestion() {
         guard let textView = managedTextView, textView.ghostText() != nil else { return }
+        caretCoordinator?.triggerCaretGenerationEffect()
         performSuggestionAcceptance(for: textView)
     }
 
     func dismissSuggestion() {
         guard let textView = managedTextView else { return }
+        caretCoordinator?.triggerCaretCancellationEffect()
         performSuggestionDismissal(for: textView)
     }
     

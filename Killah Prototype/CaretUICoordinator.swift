@@ -7,6 +7,9 @@ class NonResponderHostingView<Content: View>: NSHostingView<Content> {
 }
 
 class CaretUICoordinator: ObservableObject {
+    // Триггер для caret-эффекта (анимации)
+    @Published var triggerCaretEffect: Bool = false
+    @Published var triggerCancellationEffect: Bool = false
     @Published var caretPositionInWindow: CGPoint = .zero
     @Published var caretSize: CGSize = CGSize(width: 2, height: 20)
     
@@ -18,9 +21,15 @@ class CaretUICoordinator: ObservableObject {
     @Published var isPaused: Bool = false
     @Published var transcribedText: String = ""
     @Published var audioLevel: Float = 0.0
+    @Published var isProcessingAudio: Bool = false
 
     // User input
     @Published var promptText: String = ""
+    
+    // Computed property - overlay should show ONLY during recording, not during processing
+    var shouldShowOverlay: Bool {
+        return isRecording
+    }
 
     private var audioEngine: AudioEngine
     private var llmEngine: LLMEngine
@@ -68,6 +77,13 @@ class CaretUICoordinator: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] level in
                 self?.audioLevel = level
+            }
+            .store(in: &cancellables)
+
+        audioEngine.$isProcessingAudio
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isProcessing in
+                self?.isProcessingAudio = isProcessing
             }
             .store(in: &cancellables)
     }
@@ -161,10 +177,33 @@ class CaretUICoordinator: ObservableObject {
     // Helper function for prompt field height calculation
     func calculatePromptFieldHeight() -> CGFloat {
         let font = NSFont.systemFont(ofSize: promptFieldFontSize)
-        let textHeight = promptText.height(withConstrainedWidth: basePromptFieldWidth - 24, font: font)
+        // Используем expandedPromptFieldWidth для расчёта высоты (или basePromptFieldWidth, если не расширено)
+        let width = expandedPromptFieldWidth - 24
+        let text = promptText.isEmpty ? " " : promptText
+        let nsText = text as NSString
+        let boundingRect = nsText.boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        )
+        // Корректная высота строки для NSFont
+        let lineHeight = font.ascender - font.descender + font.leading
+        let numberOfLines = max(1, Int(ceil(boundingRect.height / lineHeight)))
         let minHeight = promptFieldHeight
         let maxHeight = minHeight * 3
-        return max(minHeight, min(textHeight + 12, maxHeight))
+        let totalHeight = CGFloat(numberOfLines) * lineHeight + 12 // 12 — паддинг
+        return max(minHeight, min(totalHeight, maxHeight))
+    }
+
+    /// Вызвать caret-эффект (анимацию)
+    func triggerCaretGenerationEffect() {
+        triggerCaretEffect = true
+    }
+
+    /// Вызвать caret-cancellation-эффект (анимацию)
+    func triggerCaretCancellationEffect() {
+        triggerCancellationEffect = true
     }
 }
 
