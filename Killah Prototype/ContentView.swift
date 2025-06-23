@@ -175,12 +175,14 @@ struct ContentView: View {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
+        let llmEngine = LLMEngine()
+        let audioEngine = AudioEngine(llmEngine: llmEngine)
         ContentView(
             // 1) Binding-заглушка для документа
             document: .constant(TextDocument())
         )
         // 2) Прокидываем оба environmentObject
-        .environmentObject(LLMEngine())
-        .environmentObject(AudioEngine())
+        .environmentObject(llmEngine)
+        .environmentObject(audioEngine)
     }
 }
