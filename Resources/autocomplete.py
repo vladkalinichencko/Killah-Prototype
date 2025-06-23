@@ -245,8 +245,11 @@ while True:
                 for suggestion in suggestions:
                     if interrupted:
                         break
-                    print(suggestion, flush=True)
-                    time.sleep(0.01)  # Уменьшена задержка для более быстрого вывода
+                    words = suggestion.split()
+                    for word in words:
+                        print(word + " ", flush=True)
+                        time.sleep(0.07) # Adjust for other time interval
+
                 if not interrupted:
                     print("END_SUGGESTIONS", flush=True)
             else:
