@@ -9,7 +9,8 @@ class NonResponderHostingView<Content: View>: NSHostingView<Content> {
 class CaretUICoordinator: ObservableObject {
     // Триггер для caret-эффекта (анимации)
     @Published var triggerCaretEffect: Bool = false
-    @Published var triggerCancellationEffect: Bool = false
+    @Published var triggerBounceRight: Bool = false
+    @Published var triggerBounceLeft: Bool = false
     @Published var caretPositionInWindow: CGPoint = .zero
     @Published var caretSize: CGSize = CGSize(width: 2, height: 20)
     
@@ -199,11 +200,6 @@ class CaretUICoordinator: ObservableObject {
     /// Вызвать caret-эффект (анимацию)
     func triggerCaretGenerationEffect() {
         triggerCaretEffect = true
-    }
-
-    /// Вызвать caret-cancellation-эффект (анимацию)
-    func triggerCaretCancellationEffect() {
-        triggerCancellationEffect = true
     }
 }
 

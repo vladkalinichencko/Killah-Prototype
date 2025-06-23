@@ -217,12 +217,12 @@ class Coordinator: NSObject, NSTextViewDelegate {
 
         func isBulletListActive() -> Bool {
             // if managedTextView is nil, fall back to empty range (0,0)
-            let range = managedTextView?.selectedRange() ?? NSRange(location: 0, length: 0)
+            let range = managedTextView?.selectedRange ?? NSRange(location: 0, length: 0)
             return paragraphListActive(in: range, markerFormat: .disc)
         }
 
         func isNumberedListActive() -> Bool {
-            let range = managedTextView?.selectedRange() ?? NSRange(location: 0, length: 0)
+            let range = managedTextView?.selectedRange ?? NSRange(location: 0, length: 0)
             return paragraphListActive(in: range, markerFormat: .decimal)
         }
 
@@ -348,24 +348,14 @@ class Coordinator: NSObject, NSTextViewDelegate {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? CustomInlineNSTextView else { return }
             
-            // Не обновляем позицию каретки, если есть призрачный текст
-            // Это предотвращает "прыжки" каретки при появлении автодополнений
             if textView.ghostText() != nil {
                 return
             }
             
             let selectedRange = textView.selectedRange
-            let charIndex: Int
-            
-            if selectedRange.length > 0 {
-                charIndex = NSMaxRange(selectedRange)
-            } else {
-                charIndex = textView.lastMouseUpCharIndex ?? selectedRange.location
-            }
-            
+            let charIndex: Int = textView.lastMouseUpCharIndex ?? selectedRange.location
             caretCoordinator?.updateCaretPosition(for: textView, at: charIndex)
             textView.lastMouseUpCharIndex = nil
-            
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.parent.onSelectionChange?()
@@ -373,8 +363,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
             }
         }
         
-        
-        private func requestTextCompletion(for textView: CustomInlineNSTextView) {
+        func requestTextCompletion(for textView: CustomInlineNSTextView) {
             let currentPromptForLLM = textView.committedText()
             guard !currentPromptForLLM.isEmpty else {
                 textView.clearGhostText()
@@ -391,8 +380,8 @@ class Coordinator: NSObject, NSTextViewDelegate {
                 prompt: currentPromptForLLM) { [weak self, weak textView] token in
                 DispatchQueue.main.async {
                     textView?.appendGhostTextToken(token)
-                    // Триггерим caret-эффект при каждом появлении ghost text
-                    self?.caretCoordinator?.triggerCaretGenerationEffect()
+                    // Trigger caret effect for each suggestion token
+                    self?.caretCoordinator?.triggerCaretEffect = true
                 }
             } onComplete: { [weak textView] result in
                 DispatchQueue.main.async {
@@ -674,15 +663,17 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
 }
 
 extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
+
     func acceptSuggestion() {
         guard let textView = managedTextView, textView.ghostText() != nil else { return }
-        caretCoordinator?.triggerCaretGenerationEffect()
+        caretCoordinator?.triggerBounceRight = true
         performSuggestionAcceptance(for: textView)
     }
 
+
     func dismissSuggestion() {
         guard let textView = managedTextView else { return }
-        caretCoordinator?.triggerCaretCancellationEffect()
+        caretCoordinator?.triggerBounceLeft = true
         performSuggestionDismissal(for: textView)
     }
     
@@ -708,6 +699,11 @@ extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
         isProcessingAcceptOrDismiss = false
         DispatchQueue.main.async {
             textView.window?.makeFirstResponder(textView)
+        }
+        // Триггерим генерацию новой подсказки сразу после Tab
+        parent.debouncer.debounce { [weak self, weak textView] in
+            guard let self = self, let textView = textView else { return }
+            self.requestTextCompletion(for: textView)
         }
     }
     
@@ -805,14 +801,56 @@ class CustomInlineNSTextView: NSTextView {
     }
     
     override func keyDown(with event: NSEvent) {
-        // Intercept Tab to accept suggestion, Escape to dismiss
+        // Intercept Tab to accept suggestion, or force-generate if none
         if event.keyCode == KeyCodes.tab {
-            llmInteractionDelegate?.acceptSuggestion()
+            if self.ghostText() != nil {
+                if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                    coordinator.caretCoordinator?.triggerBounceRight = true
+                }
+                llmInteractionDelegate?.acceptSuggestion()
+            } else if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                coordinator.caretCoordinator?.triggerBounceRight = true
+                // Force-generate suggestion for current context
+                coordinator.parent.debouncer.debounce { [weak coordinator, weak self] in
+                    guard let coordinator = coordinator, let self = self else { return }
+                    coordinator.requestTextCompletion(for: self)
+                }
+            }
             return
         }
+        // Intercept Escape to dismiss
         if event.keyCode == KeyCodes.escape {
+            if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                coordinator.caretCoordinator?.triggerBounceLeft = true
+            }
             llmInteractionDelegate?.dismissSuggestion()
             return
+        }
+        // Handle Cmd+Right and Cmd+Left for custom completions/animations
+        if event.modifierFlags.contains(.command) {
+            if event.keyCode == KeyCodes.rightArrow {
+                // Cmd+Right: regenerate suggestion, trigger bounce right
+                if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                    self.clearGhostText()
+                    coordinator.caretCoordinator?.triggerBounceRight = true
+                    coordinator.parent.debouncer.debounce { [weak coordinator, weak self] in
+                        guard let coordinator = coordinator, let self = self else { return }
+                        coordinator.requestTextCompletion(for: self)
+                    }
+                }
+                return
+            } else if event.keyCode == KeyCodes.leftArrow {
+                // Cmd+Left: regenerate suggestion, trigger bounce left
+                if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                    self.clearGhostText()
+                    coordinator.caretCoordinator?.triggerBounceLeft = true
+                    coordinator.parent.debouncer.debounce { [weak coordinator, weak self] in
+                        guard let coordinator = coordinator, let self = self else { return }
+                        coordinator.requestTextCompletion(for: self)
+                    }
+                }
+                return
+            }
         }
         super.keyDown(with: event)
         notifyDelegate()
@@ -950,7 +988,7 @@ class CustomInlineNSTextView: NSTextView {
         if length <= ghostRange.length {
             let consumedRange = NSRange(location: ghostRange.location, length: length)
             let remainingGhostLength = ghostRange.length - length
-            
+
             ts.beginEditing()
             let normalAttributes: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.textColor,
@@ -958,19 +996,23 @@ class CustomInlineNSTextView: NSTextView {
             ]
             ts.removeAttribute(.isGhostText, range: consumedRange)
             ts.addAttributes(normalAttributes, range: consumedRange)
-            
+
             if remainingGhostLength > 0 {
                 currentGhostTextRange = NSRange(location: ghostRange.location + length, length: remainingGhostLength)
             } else {
                 currentGhostTextRange = nil
             }
-        ts.endEditing()
+            ts.endEditing()
 
-        let newLocation = NSMaxRange(consumedRange)
-        self.selectedRange = NSRange(location: newLocation, length: 0)
-        self.scrollRangeToVisible(self.selectedRange)
-        
-        self.lastCommittedTextForChangeDetection = self.committedText()
+            // caret должен быть в конце только что введённого текста
+            let newLocation = ghostRange.location + length
+            self.selectedRange = NSRange(location: newLocation, length: 0)
+            self.scrollRangeToVisible(self.selectedRange)
+            // Явно обновляем кастомную каретку (если есть)
+            if let coordinator = self.delegate as? InlineSuggestingTextView.Coordinator {
+                coordinator.caretCoordinator?.updateCaretPosition(for: self, at: newLocation)
+            }
+            self.lastCommittedTextForChangeDetection = self.committedText()
         } else {
             acceptGhostText()
         }
@@ -1025,5 +1067,6 @@ import Carbon.HIToolbox
 enum KeyCodes {
     static let tab: UInt16 = 0x30
     static let rightArrow: UInt16 = 0x7C
+    static let leftArrow: UInt16 = 0x7B
     static let escape: UInt16 = 0x35
 }
