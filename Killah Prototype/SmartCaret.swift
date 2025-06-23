@@ -34,6 +34,13 @@ struct SmartCaretView: View {
     @State private var animatedShadowColor: Color = .clear
     @State private var animatedShadowRadius: CGFloat = 0
     @State private var animatedShadowOffset: CGSize = .zero
+    @State private var animatedShadowColor2: Color = .clear
+    @State private var animatedShadowRadius2: CGFloat = 0
+    @State private var animatedShadowOffset2: CGSize = .zero
+    @State private var animatedShadowColor3: Color = .clear
+    @State private var animatedShadowRadius3: CGFloat = 0
+    @State private var animatedShadowOffset3: CGSize = .zero
+    @State private var animatedCaretColor: Color? = nil
     
     // Unified animation for all caret UI elements
     private let caretUIAnimation = Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)
@@ -49,21 +56,26 @@ struct SmartCaretView: View {
                 )
                 .scaleEffect(isCaretPressed ? 0.9 : 1.0)
                 .shadow(color: shadowColor, radius: shadowRadius)
-                .shadow(color: animatedShadowColor,
-                        radius: animatedShadowRadius,
-                        x: animatedShadowOffset.width,
-                        y: animatedShadowOffset.height)
+                .shadow(color: animatedShadowColor, radius: animatedShadowRadius, x: animatedShadowOffset.width, y: animatedShadowOffset.height)
+                .shadow(color: animatedShadowColor2, radius: animatedShadowRadius2, x: animatedShadowOffset2.width, y: animatedShadowOffset2.height)
+                .shadow(color: animatedShadowColor3, radius: animatedShadowRadius3, x: animatedShadowOffset3.width, y: animatedShadowOffset3.height)
                 .offset(x: caretXOffset)
                 .onChange(of: coordinator.triggerCaretEffect) { _, newValue in
                     if newValue {
-                        triggerGenerationEffect()
+                        caretGenerationHighlight()
                         coordinator.triggerCaretEffect = false
                     }
                 }
-                .onChange(of: coordinator.triggerCancellationEffect) { _, newValue in
+                .onChange(of: coordinator.triggerBounceRight) { _, newValue in
                     if newValue {
-                        triggerCancellationEffect()
-                        coordinator.triggerCancellationEffect = false
+                        caretBounceRight()
+                        coordinator.triggerBounceRight = false
+                    }
+                }
+                .onChange(of: coordinator.triggerBounceLeft) { _, newValue in
+                    if newValue {
+                        caretBounceLeft()
+                        coordinator.triggerBounceLeft = false
                     }
                 }
                 .allowsHitTesting(false)
@@ -102,7 +114,9 @@ struct SmartCaretView: View {
     
     // Local computed properties
     private var caretColor: Color {
-        if coordinator.isRecording {
+        if let animated = animatedCaretColor {
+            return animated
+        } else if coordinator.isRecording {
             return Color.red.opacity(0.7)
         } else if isCaretHovered {
             return Color.red
@@ -123,7 +137,7 @@ struct SmartCaretView: View {
     
     private var shadowColor: Color {
         if isCaretPressed {
-            return Color.red.opacity(0.4)
+            return Color.red
         } else if isCaretHovered {
             return Color.red.opacity(0.7)
         } else {
@@ -142,41 +156,56 @@ struct SmartCaretView: View {
     }
     
     // Animation effects
-    private func triggerGenerationEffect() {
-        // Forward bounce (right)
+    // --- Bounce Right ---
+    func caretBounceRight() {
         withAnimation(.easeOut(duration: 0.12)) {
             caretXOffset = 5
-            animatedShadowColor = Color.cyan.opacity(0.7)
-            animatedShadowRadius = 8
-            animatedShadowOffset = CGSize(width: 5, height: 2)
         }
-        // Return to normal
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
                 caretXOffset = 0
-                animatedShadowColor = .clear
-                animatedShadowRadius = 0
-                animatedShadowOffset = .zero
             }
         }
     }
 
-    private func triggerCancellationEffect() {
-        print("Triggering cancellation effect")
-        // Backward bounce (left)
+    // --- Bounce Left ---
+    func caretBounceLeft() {
         withAnimation(.easeOut(duration: 0.12)) {
             caretXOffset = -5
-            animatedShadowColor = Color.red.opacity(0.7)
-            animatedShadowRadius = 8
-            animatedShadowOffset = CGSize(width: -5, height: 2)
         }
-        // Return to normal
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
                 caretXOffset = 0
+            }
+        }
+    }
+
+    // --- Generation Highlight ---
+    func caretGenerationHighlight() {
+        withAnimation(.easeOut(duration: 0.1)) {
+            animatedShadowColor = Color.red
+            animatedShadowRadius = 4
+            animatedShadowOffset = CGSize(width: -4, height:0)
+            animatedShadowColor2 = Color.red
+            animatedShadowRadius2 = 4
+            animatedShadowOffset2 = CGSize(width: 6, height: 0)
+            animatedShadowColor3 = Color.red
+            animatedShadowRadius3 = 8
+            animatedShadowOffset3 = CGSize(width: 16, height: 0)
+            animatedCaretColor = Color.red
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                 animatedShadowColor = .clear
                 animatedShadowRadius = 0
                 animatedShadowOffset = .zero
+                animatedShadowColor2 = .clear
+                animatedShadowRadius2 = 0
+                animatedShadowOffset2 = .zero
+                animatedShadowColor3 = .clear
+                animatedShadowRadius3 = 0
+                animatedShadowOffset3 = .zero
+                animatedCaretColor = nil
             }
         }
     }
