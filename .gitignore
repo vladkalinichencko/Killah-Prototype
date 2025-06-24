@@ -1,3 +1,5 @@
+# Ignore wav2vec2-xls-r-300m model directory
+Resources/wav2vec2-xls-r-300m/
 # Xcode
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
