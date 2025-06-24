@@ -122,6 +122,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
         var currentCommittedText: String = ""
         var isInternallyUpdatingTextBinding: Bool = false
         var isProcessingAcceptOrDismiss: Bool = false
+        var skipNextCompletion: Bool = false
 
         init(_ parent: InlineSuggestingTextView, llmEngine: LLMEngine, audioEngine: AudioEngine) {
             self.parent = parent
@@ -381,10 +382,12 @@ class Coordinator: NSObject, NSTextViewDelegate {
         func requestTextCompletion(for textView: CustomInlineNSTextView) {
             let currentPromptForLLM = textView.committedText()
             guard !currentPromptForLLM.isEmpty else {
+                print("💤 requestTextCompletion: prompt is empty, skipping")
                 textView.clearGhostText()
                 llmEngine.abortSuggestion(for: "autocomplete")
                 return
             }
+            print("✨ requestTextCompletion: sending prompt length \(currentPromptForLLM.count)")
             
             if textView.ghostText() != nil {
                 textView.clearGhostText()
@@ -417,6 +420,14 @@ class Coordinator: NSObject, NSTextViewDelegate {
         }
         
         private func handleTextChange(for textView: CustomInlineNSTextView) {
+            // If we recently dismissed and want to suppress one auto-completion cycle
+            if skipNextCompletion {
+                skipNextCompletion = false
+                print("⏭️ Skipping auto-completion after dismissal")
+                updateTextBinding(with: textView.committedText())
+                currentCommittedText = textView.committedText()
+                return
+            }
             let previousCommittedTextInCoordinator = self.currentCommittedText
             let newCommittedTextFromTextView = textView.committedText()
             
@@ -453,6 +464,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
         
         private func clearAllCompletions(for textView: CustomInlineNSTextView) {
             textView.clearGhostText()
+            parent.debouncer.cancel()
         }
         
         func updateCaret() {
@@ -817,10 +829,10 @@ extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
     }
     
     private func performSuggestionAcceptance(for textView: CustomInlineNSTextView) {
+        print("✅ performSuggestionAcceptance called")
         isProcessingAcceptOrDismiss = true
         let acceptedRange = textView.currentGhostTextRange
         textView.acceptGhostText()
-        clearAllCompletions(for: textView)
 
         let newCommittedStr = textView.string
         updateTextBinding(with: newCommittedStr)
@@ -839,17 +851,24 @@ extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
         DispatchQueue.main.async {
             textView.window?.makeFirstResponder(textView)
         }
-        // Триггерим генерацию новой подсказки сразу после Tab
-        parent.debouncer.debounce { [weak self, weak textView] in
-            guard let self = self, let textView = textView else { return }
-            self.requestTextCompletion(for: textView)
+        
+        // Only trigger a new suggestion if the engine isn't already busy.
+        if llmEngine.engineState != .running {
+            parent.debouncer.debounce { [weak self, weak textView] in
+                guard let self = self, let textView = textView else { return }
+                self.requestTextCompletion(for: textView)
+            }
         }
     }
     
     private func performSuggestionDismissal(for textView: CustomInlineNSTextView) {
         isProcessingAcceptOrDismiss = true
         
+        print("🚫 performSuggestionDismissal called")
+        llmEngine.abortSuggestion(for: "autocomplete")
         clearAllCompletions(for: textView)
+        parent.debouncer.cancel() // cancel any pending completion
+        skipNextCompletion = true // prevent immediate re-fetch
         
         isProcessingAcceptOrDismiss = false
         
@@ -996,9 +1015,6 @@ class CustomInlineNSTextView: NSTextView {
         // Intercept Tab to accept suggestion, or force-generate if none
         if event.keyCode == KeyCodes.tab {
             if self.ghostText() != nil {
-                if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
-                    coordinator.caretCoordinator?.triggerBounceRight = true
-                }
                 llmInteractionDelegate?.acceptSuggestion()
             } else if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
                 coordinator.caretCoordinator?.triggerBounceRight = true
@@ -1102,6 +1118,8 @@ class CustomInlineNSTextView: NSTextView {
     func appendGhostTextToken(_ token: String) {
         guard let ts = self.textStorage, !token.isEmpty else { return }
 
+        print("👻 Appending ghost token: \(token)")
+
         ts.beginEditing()
         let attributes: [NSAttributedString.Key: Any] = [
             .isGhostText: true,
@@ -1146,8 +1164,10 @@ class CustomInlineNSTextView: NSTextView {
     func clearGhostText() {
         guard let ts = self.textStorage, let ghostRange = currentGhostTextRange, ghostRange.length > 0 else {
             currentGhostTextRange = nil
+            print("👻 clearGhostText: nothing to clear")
             return
         }
+        print("👻 clearGhostText: removing range \(ghostRange)")
         if ghostRange.location <= ts.length && NSMaxRange(ghostRange) <= ts.length {
             ts.beginEditing()
             ts.replaceCharacters(in: ghostRange, with: "")
@@ -1158,6 +1178,7 @@ class CustomInlineNSTextView: NSTextView {
 
     func acceptGhostText() {
         guard let ts = self.textStorage, let ghostRange = currentGhostTextRange, ghostRange.length > 0 else { return }
+        print("👻 acceptGhostText: accepting range \(ghostRange)")
         
         if ghostRange.location <= ts.length && NSMaxRange(ghostRange) <= ts.length {
             let normalAttributes: [NSAttributedString.Key: Any] = [
@@ -1177,6 +1198,7 @@ class CustomInlineNSTextView: NSTextView {
     func consumeGhostText(length: Int) {
         guard let ts = self.textStorage, let ghostRange = currentGhostTextRange, length > 0 else { return }
 
+        print("👻 consumeGhostText: consuming length \(length) from range \(ghostRange)")
         if length <= ghostRange.length {
             let consumedRange = NSRange(location: ghostRange.location, length: length)
             let remainingGhostLength = ghostRange.length - length
@@ -1218,12 +1240,21 @@ class CustomLayoutManager: NSLayoutManager {
 }
 
 class Debouncer: ObservableObject {
+    // Global registry of all debouncers (weak refs so no retain cycles)
+    private static let registry = NSHashTable<AnyObject>.weakObjects()
+    static func cancelAll() {
+        for obj in registry.allObjects {
+            (obj as? Debouncer)?.cancel()
+        }
+    }
+
     private let delay: TimeInterval
     private var workItem: DispatchWorkItem?
     private let queue: DispatchQueue
     init(delay: TimeInterval, queue: DispatchQueue = DispatchQueue.main) {
         self.delay = delay
         self.queue = queue
+        Debouncer.registry.add(self)
     }
     func debounce(action: @escaping () -> Void) {
         workItem?.cancel()
