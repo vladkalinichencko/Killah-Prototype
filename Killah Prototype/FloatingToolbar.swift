@@ -4,48 +4,49 @@ import AppKit
 /// Floating toolbar with formatting controls
 struct FloatingToolbar: View {
     weak var formattingDelegate: TextFormattingDelegate?
+    var isBoldActive: Bool
+    var isItalicActive: Bool
+    var isUnderlineActive: Bool
+    var isStrikethroughActive: Bool
+    var isBulletActive: Bool
+    var isNumberedActive: Bool
+    var isLeftAlignActive: Bool
+    var isCenterAlignActive: Bool
+    var isRightAlignActive: Bool
+    
     private let fontManager = FontManager.shared
     
     var body: some View {
         HStack(spacing: 12) {
             // Text formatting group
             HStack(spacing: 8) {
-                Button(action: {
-                    formattingDelegate?.toggleBold() // bold
-                }) {
+                Button(action: { formattingDelegate?.toggleBold() }) {
                     Image(systemName: "bold")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isBoldActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isBoldActive))
 
-
-                Button(action: {
-                    formattingDelegate?.toggleItalic() // italic
-                }) {
+                Button(action: { formattingDelegate?.toggleItalic() }) {
                     Image(systemName: "italic")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isItalicActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isItalicActive))
 
-                Button(action: {
-                    formattingDelegate?.toggleUnderline() // underline
-                }) {
+                Button(action: { formattingDelegate?.toggleUnderline() }) {
                     Image(systemName: "underline")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isUnderlineActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isUnderlineActive))
 
-                Button(action: {
-                    formattingDelegate?.toggleStrikethrough() // strikethrough
-                }) {
+                Button(action: { formattingDelegate?.toggleStrikethrough() }) {
                     Image(systemName: "strikethrough")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isStrikethroughActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isStrikethroughActive))
             }
             
             Divider().frame(height: 20)
@@ -55,29 +56,44 @@ struct FloatingToolbar: View {
                 Button(action: { formattingDelegate?.toggleBulletList() }) {
                     Image(systemName: "list.bullet")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isBulletActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
-                
+                .buttonStyle(ToolbarButtonStyle(isActive: isBulletActive))
+
                 Button(action: { formattingDelegate?.toggleNumberedList() }) {
                     Image(systemName: "list.number")
                         .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
-                        .foregroundColor(.primary)
+                        .foregroundColor(isNumberedActive ? .accentColor : .primary)
                 }
-                .buttonStyle(ToolbarButtonStyle())
+                .buttonStyle(ToolbarButtonStyle(isActive: isNumberedActive))
             }
             
             Divider().frame(height: 20)
             
             // Alignment
             HStack(spacing: 8) {
-                Button(action: { formattingDelegate?.setTextAlignment(.left) }) { Image(systemName: "text.alignleft").font(.system(size: fontManager.toolbarIconSize, weight: .medium)).foregroundColor(.primary) }
-                    .buttonStyle(ToolbarButtonStyle())
-                Button(action: { formattingDelegate?.setTextAlignment(.center) }) { Image(systemName: "text.aligncenter").font(.system(size: fontManager.toolbarIconSize, weight: .medium)).foregroundColor(.primary) }
-                    .buttonStyle(ToolbarButtonStyle())
-                Button(action: { formattingDelegate?.setTextAlignment(.right) }) { Image(systemName: "text.alignright").font(.system(size: fontManager.toolbarIconSize, weight: .medium)).foregroundColor(.primary) }
-                    .buttonStyle(ToolbarButtonStyle())
+                Button(action: { formattingDelegate?.setTextAlignment(.left) }) {
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
+                        .foregroundColor(isLeftAlignActive ? .accentColor : .primary)
+                }
+                .buttonStyle(ToolbarButtonStyle(isActive: isLeftAlignActive))
+
+                Button(action: { formattingDelegate?.setTextAlignment(.center) }) {
+                    Image(systemName: "text.aligncenter")
+                        .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
+                        .foregroundColor(isCenterAlignActive ? .accentColor : .primary)
+                }
+                .buttonStyle(ToolbarButtonStyle(isActive: isCenterAlignActive))
+
+                Button(action: { formattingDelegate?.setTextAlignment(.right) }) {
+                    Image(systemName: "text.alignright")
+                        .font(.system(size: fontManager.toolbarIconSize, weight: .medium))
+                        .foregroundColor(isRightAlignActive ? .accentColor : .primary)
+                }
+                .buttonStyle(ToolbarButtonStyle(isActive: isRightAlignActive))
             }
+
             
             Divider().frame(height: 20)
             
@@ -103,26 +119,25 @@ struct FloatingToolbar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8) // Add vertical padding for better appearance
         .background(.ultraThickMaterial) // Use ultraThickMaterial for a translucent background
-        .cornerRadius(8) // Rounded corners for the toolbar
+        .cornerRadius(12) // Rounded corners for the toolbar
         .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 2) // Add a shadow
     }
     
     private func openFontPanel() {
         guard NSApp.mainWindow != nil else { return }
-        DispatchQueue.main.async {
-            NSApp.sendAction(#selector(NSFontManager.orderFrontFontPanel(_:)), to: nil, from: nil)
-        }
+        NSApp.sendAction(#selector(NSFontManager.orderFrontFontPanel(_:)), to: nil, from: nil)
     }
 }
 
 struct ToolbarButtonStyle: ButtonStyle {
+    var isActive: Bool = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(configuration.isPressed ? Color.primary.opacity(0.15) : Color.clear)
+                    .fill(isActive ? Color.accentColor.opacity(0.18) : (configuration.isPressed ? Color.primary.opacity(0.15) : Color.clear))
             )
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
@@ -136,7 +151,7 @@ struct ToolbarButtonStyle: ButtonStyle {
     }
 }
 
-struct VisualEffectView: NSViewRepresentable {
+struct FloatingToolbarVisualEffectView: NSViewRepresentable {
     var material: NSVisualEffectView.Material
     var blendingMode: NSVisualEffectView.BlendingMode
 

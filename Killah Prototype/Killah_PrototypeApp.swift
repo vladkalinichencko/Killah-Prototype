@@ -10,9 +10,20 @@ import AppKit
 
 @main
 struct Killah_PrototypeApp: App {
+    @StateObject private var llmEngine = LLMEngine()
+    @StateObject private var audioEngine: AudioEngine
+    
+    init() {
+        let llm = LLMEngine()
+        _llmEngine = StateObject(wrappedValue: llm)
+        _audioEngine = StateObject(wrappedValue: AudioEngine(llmEngine: llm))
+    }
+    
     var body: some Scene {
         DocumentGroup(newDocument: TextDocument()) { file in
             ContentView(document: file.$document)
+                .environmentObject(llmEngine)
+                .environmentObject(audioEngine)
                 .containerBackground(.regularMaterial, for: .window)
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .onAppear {
@@ -51,21 +62,23 @@ struct MenuCommands: Commands {
             }
         }
 
-        // Format menu
-        CommandMenu("Format") {
-            Button("Bold") { NotificationCenter.default.post(name: NSNotification.Name("ToggleBold"), object: nil) }
-                .keyboardShortcut("b", modifiers: .command)
-            Button("Italic") { NotificationCenter.default.post(name: NSNotification.Name("ToggleItalic"), object: nil) }
-                .keyboardShortcut("i", modifiers: .command)
-            Button("Underline") { NotificationCenter.default.post(name: NSNotification.Name("ToggleUnderline"), object: nil) }
-                .keyboardShortcut("u", modifiers: .command)
-            Divider()
-            Menu("Text Size") {
-                Button("Increase") { NotificationCenter.default.post(name: NSNotification.Name("IncreaseFontSize"), object: nil) }
-                    .keyboardShortcut("+", modifiers: .command)
-                Button("Decrease") { NotificationCenter.default.post(name: NSNotification.Name("DecreaseFontSize"), object: nil) }
-                    .keyboardShortcut("-", modifiers: .command)
+        CommandGroup(replacing: .textFormatting) {
+            Button("Bold") {
+                FormattingCommands.shared.toggleBold()
             }
+            .keyboardShortcut("b", modifiers: [.command])
+            Button("Italic") {
+                FormattingCommands.shared.toggleItalic()
+            }
+            .keyboardShortcut("i", modifiers: [.command])
+            Button("Underline") {
+                FormattingCommands.shared.toggleUnderline()
+            }
+            .keyboardShortcut("u", modifiers: [.command])
+            Button("Strikethrough") {
+                FormattingCommands.shared.toggleStrikethrough()
+            }
+            .keyboardShortcut("x", modifiers: [.command, .shift])
         }
     }
 }

@@ -1,7 +1,7 @@
-torch
+# torch
+# mlx
 transformers
 accelerate
-mlx
 protobuf
 ipywidgets
 optimum-quanto
@@ -13,3 +13,8 @@ nltk
 scikit-learn
 soundfile
 rouge_score
+matplotlib
+seaborn
+pandas
+huggingface_hub
+wandb
