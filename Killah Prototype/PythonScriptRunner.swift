@@ -108,7 +108,7 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
 
         if currentTokenCallback != nil || currentCompletionCallback != nil {
             print("ℹ️ Aborting previous suggestion for \(scriptName) before sending new data")
-            abortSuggestion(notifyPython: false)
+            abortSuggestion(notifyPython: true)
         }
 
         currentTokenCallback = tokenStreamCallback
