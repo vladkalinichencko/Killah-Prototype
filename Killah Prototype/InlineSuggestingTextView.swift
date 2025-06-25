@@ -420,6 +420,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
         }
         
         private func handleTextChange(for textView: CustomInlineNSTextView) {
+            parent.debouncer.cancel()
             // If we recently dismissed and want to suppress one auto-completion cycle
             if skipNextCompletion {
                 skipNextCompletion = false
@@ -829,6 +830,7 @@ extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
     }
     
     private func performSuggestionAcceptance(for textView: CustomInlineNSTextView) {
+        parent.debouncer.cancel()
         print("✅ performSuggestionAcceptance called")
         isProcessingAcceptOrDismiss = true
         let acceptedRange = textView.currentGhostTextRange
@@ -862,6 +864,7 @@ extension InlineSuggestingTextView.Coordinator: LLMInteractionDelegate {
     }
     
     private func performSuggestionDismissal(for textView: CustomInlineNSTextView) {
+        parent.debouncer.cancel()
         isProcessingAcceptOrDismiss = true
         
         print("🚫 performSuggestionDismissal called")
