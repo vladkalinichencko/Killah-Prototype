@@ -1,20 +1,36 @@
-# torch
-# mlx
+# Core ML frameworks
+torch
+torchaudio
 transformers
 accelerate
-protobuf
-ipywidgets
-optimum-quanto
-torchaudio
-tqdm
+peft
+
+# Audio processing
+soundfile
+
+# Quantization and optimization
 bitsandbytes
+optimum-quanto
+
+# Data processing and ML utilities
+numpy
+pandas
+scikit-learn
+tqdm
+
+# Evaluation metrics
 jiwer
 nltk
-scikit-learn
-soundfile
 rouge_score
+
+# Visualization and notebook utilities
 matplotlib
 seaborn
-pandas
+ipywidgets
+
+# Hugging Face and experiment tracking
 huggingface_hub
 wandb
+
+# System utilities
+protobuf
