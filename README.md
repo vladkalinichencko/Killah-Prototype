@@ -40,8 +40,11 @@ We believe that the best writing comes from **you**. Killah doesn't try to write
    ```bash
    open "Killah Prototype.xcodeproj"
    ```
+3. **Download models:**
+   - Base model with 8 bit quantization: https://huggingface.co/poinka/gemma-3-4b-pt-q8bits
+   - Audio2vec model for auido processing: https://huggingface.co/facebook/wav2vec2-xls-r-300m
 
-3. **Build and run**
+4. **Build and run**
    - Select your target device/simulator
    - Press `Cmd + R` to build and run
 
