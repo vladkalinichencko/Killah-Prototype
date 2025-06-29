@@ -5,7 +5,7 @@ import AppKit
 class LLMEngine: ObservableObject {
     @Published var suggestion: String = ""
     @Published var engineState: EngineState = .idle
-
+    
     enum EngineState: Equatable {
         case idle
         case starting

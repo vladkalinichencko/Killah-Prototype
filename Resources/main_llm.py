@@ -8,7 +8,7 @@ class LLM:
     def __init__(self):
         self.model = None
         self.tokenizer = None
-        self.model_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "gemma-3-4b-pt")
+        self.model_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "gemma-3-4b-pt-q8bits")
     
     def load_model(self):
         """Loads the model and tokenizer, returning True if successful, False otherwise."""
@@ -53,5 +53,9 @@ def get_model_loader():
     """Returns the singleton ModelLoader instance, initializing it if necessary."""
     global _model_loader
     if _model_loader is None:
-        _model_loader = ModelLoader()
+        _model_loader = LLM()
+        if _model_loader.load_model():
+            print("ModelLoader initialized successfully", file=sys.stderr, flush=True)
+        else:
+            print("Failed to initialize ModelLoader", file=sys.stderr, flush=True)
     return _model_loader
