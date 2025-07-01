@@ -12,6 +12,7 @@ protocol PythonScriptRunner {
 
 class BaseScriptRunner: NSObject, PythonScriptRunner {
     let scriptName: String
+    private let modelDirectory: String?
     private var _state: LLMEngine.EngineState = .idle
     private var task: Process?
     private var stdinPipe: Pipe?
@@ -24,8 +25,9 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
     private var accumulatedOutput: String = ""
     private var isAbortedManually: Bool = false
 
-    init(scriptName: String) {
+    init(scriptName: String, modelDirectory: String?) {
         self.scriptName = scriptName
+        self.modelDirectory = modelDirectory
         super.init()
     }
 
@@ -65,6 +67,13 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
         }
 
         process.executableURL = URL(fileURLWithPath: venvPythonPath)
+        
+        var env = ProcessInfo.processInfo.environment
+        if let modelDir = modelDirectory {
+            env["MODEL_DIR"] = modelDir
+        }
+        process.environment = env
+        
         process.arguments = [scriptPath]
 
         stdinPipe = Pipe()
@@ -330,13 +339,13 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
 }
 
 class AudioScriptRunner: BaseScriptRunner {
-    init() {
-        super.init(scriptName: "audio.py")
+    init(modelDirectory: String?) {
+        super.init(scriptName: "audio.py", modelDirectory: modelDirectory)
     }
 }
 
 class AutocompleteScriptRunner: BaseScriptRunner {
-    init() {
-        super.init(scriptName: "autocomplete.py")
+    init(modelDirectory: String?) {
+        super.init(scriptName: "autocomplete.py", modelDirectory: modelDirectory)
     }
 }

@@ -36,8 +36,10 @@ def initialize_models():
         print("Initializing audio models...", file=sys.stderr, flush=True)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # Путь к локальной модели внутри ресурсов приложения
-        model_path = os.path.join(os.path.dirname(__file__), "wav2vec2-xls-r-300m")
+        # Get model base path from environment variable, fall back to bundled resources
+        base_model_path = os.environ.get('MODEL_DIR') or os.path.dirname(__file__)
+        model_path = os.path.join(base_model_path, "wav2vec2-xls-r-300m")
+
         if not os.path.exists(model_path):
             print(f"Model directory {model_path} does not exist", file=sys.stderr, flush=True)
             return False

@@ -37,11 +37,13 @@ class LLMEngine: ObservableObject {
     private var runners: [String: PythonScriptRunner] = [:]
     private var cancellables = Set<AnyCancellable>()
 
-    init() {
+    init(modelManager: ModelManager) {
         print("LLMEngine init")
+        let modelDir = modelManager.getModelsDirectory().path
+        
         // Инициализация runner'ов для скриптов
-        runners["audio"] = AudioScriptRunner()
-        runners["autocomplete"] = AutocompleteScriptRunner()
+        runners["audio"] = AudioScriptRunner(modelDirectory: modelDir)
+        runners["autocomplete"] = AutocompleteScriptRunner(modelDirectory: modelDir)
 
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in

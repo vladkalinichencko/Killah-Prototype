@@ -88,12 +88,14 @@
 			buildRules = (
 			);
 			dependencies = (
+				4065646D2E08A5E700C323FB /* XCSwiftPackageProductDependency "ZIPFoundation" */,
 			);
 			fileSystemSynchronizedGroups = (
 				40C731612DC63936004D753D /* Killah Prototype */,
 			);
 			name = "Killah Prototype";
 			packageProductDependencies = (
+				4065646D2E08A5E700C323FB /* XCSwiftPackageProductDependency "ZIPFoundation" */,
 			);
 			productName = "Killah Prototype";
 			productReference = 40C7315F2DC63936004D753D /* Killah Prototype.app */;
@@ -184,6 +186,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "zip-foundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = "0.9.9";
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4065646D2E08A5E700C323FB /* XCSwiftPackageProductDependency "ZIPFoundation" */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "zip-foundation" */;
+			productName = "ZIPFoundation";
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		40C731692DC63938004D753D /* Debug */ = {
