@@ -589,6 +589,20 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         let selectedRange = textView.selectedRange
         let text = textView.string as NSString
 
+        let createAndApplyParagraphStyle = { (prefix: String) -> NSParagraphStyle in
+            let baseStyle = (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            
+            let prefixWidth = (prefix as NSString).size(withAttributes: textView.typingAttributes).width
+            
+            baseStyle.headIndent = prefixWidth
+            baseStyle.firstLineHeadIndent = 0
+            
+            let tabStop = NSTextTab(textAlignment: .left, location: prefixWidth, options: [:])
+            baseStyle.tabStops = [tabStop]
+            
+            return baseStyle
+        }
+
         // Handle case where text view is completely empty
         if text.length == 0 {
             let prefix = (marker == .disc) ? "• " : "1. "
@@ -597,6 +611,7 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
             
             textStorage.beginEditing()
             textStorage.insert(attributedPrefix, at: 0)
+            textStorage.addAttribute(.paragraphStyle, value: createAndApplyParagraphStyle(prefix), range: NSRange(location: 0, length: attributedPrefix.length))
             textStorage.endEditing()
             
             updateTextBinding(with: textView.string)
@@ -631,6 +646,14 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
                     let absoluteRange = NSRange(location: range.location + match.lowerBound.utf16Offset(in: paragraphText),
                                                 length: match.upperBound.utf16Offset(in: paragraphText) - match.lowerBound.utf16Offset(in: paragraphText))
                     textStorage.replaceCharacters(in: absoluteRange, with: "")
+                    
+                    if let style = textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
+                       let mutableStyle = style.mutableCopy() as? NSMutableParagraphStyle {
+                        mutableStyle.headIndent = 0
+                        mutableStyle.firstLineHeadIndent = 0
+                        mutableStyle.tabStops = []
+                        textStorage.addAttribute(.paragraphStyle, value: mutableStyle, range: range)
+                    }
                 }
             }
         } else { // Add/change formatting
@@ -662,6 +685,10 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
                 }
                 let attributedPrefix = NSAttributedString(string: prefix, attributes: attributes)
                 textStorage.insert(attributedPrefix, at: range.location)
+                
+                let paragraphStyle = createAndApplyParagraphStyle(prefix)
+                let fullParagraphRange = NSRange(location: range.location, length: attributedPrefix.length + (textStorage.string as NSString).substring(with: range).utf16.count)
+                textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullParagraphRange)
             }
         }
         
@@ -724,10 +751,10 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
     func setTextAlignment(_ alignment: NSTextAlignment) {
         guard let tv = managedTextView else { return }
         
-        // 1) Находим текущий параграф
+        // 1) Находим параграфы, которые пересекаются с выделением
         let ns = tv.string as NSString
         let sel = tv.selectedRange
-        let paraRange = ns.paragraphRange(for: NSRange(location: sel.location, length: 0))
+        let paraRange = ns.paragraphRange(for: sel)
         
         // 2) Готовим новый NSMutableParagraphStyle
         let currentPS = (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?
@@ -888,6 +915,9 @@ class CustomInlineNSTextView: NSTextView {
     private var lastCommittedTextForChangeDetection: String = ""
     var lastMouseUpCharIndex: Int? = nil
 
+    private var animatedGhostTextLayer: CATextLayer?
+    private var animatedGhostTextMask: CAGradientLayer?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         notifyDelegate()
@@ -915,6 +945,8 @@ class CustomInlineNSTextView: NSTextView {
             self.autoresizingMask = [.width]
         }
         self.lastCommittedTextForChangeDetection = self.string
+
+        setupAnimatedGhostLayer()
     }
     
     convenience override init(frame frameRect: NSRect) {
@@ -1067,6 +1099,44 @@ class CustomInlineNSTextView: NSTextView {
         notifyDelegate()
     }
     
+    override func deleteBackward(_ sender: Any?) {
+        let currentRange = self.selectedRange
+        
+        if currentRange.length == 0 && currentRange.location > 0 {
+            let text = self.string as NSString
+            let lineRange = text.lineRange(for: NSRange(location: currentRange.location, length: 0))
+            let line = text.substring(with: lineRange)
+
+            let bulletPattern = #"^\s*•\s+"#
+            let numberPattern = #"^\s*\d+\.\s+"#
+
+            var markerRange: Range<String.Index>?
+            if let bulletMatch = line.range(of: bulletPattern, options: .regularExpression) {
+                markerRange = bulletMatch
+            } else if let numberMatch = line.range(of: numberPattern, options: .regularExpression) {
+                markerRange = numberMatch
+            }
+
+            if let range = markerRange {
+                let markerLength = line.distance(from: range.lowerBound, to: range.upperBound)
+                if lineRange.location + markerLength == currentRange.location {
+                    self.textStorage?.replaceCharacters(in: NSRange(location: lineRange.location, length: markerLength), with: "")
+                    
+                    if let style = self.textStorage?.attribute(.paragraphStyle, at: currentRange.location, effectiveRange: nil) as? NSParagraphStyle,
+                       let mutableStyle = style.mutableCopy() as? NSMutableParagraphStyle {
+                        mutableStyle.headIndent = 0
+                        mutableStyle.firstLineHeadIndent = 0
+                        mutableStyle.tabStops = []
+                        self.textStorage?.addAttribute(.paragraphStyle, value: mutableStyle, range: lineRange)
+                    }
+                    return
+                }
+            }
+        }
+
+        super.deleteBackward(sender)
+    }
+    
     private func notifyDelegate() {
         // Caret position updates are handled by textViewDidChangeSelection only
         // to prevent race conditions during rapid text changes
@@ -1084,6 +1154,7 @@ class CustomInlineNSTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         notifyDelegate()
+        updateAnimatedGhostLayer(isAnimating: false)
     }
 
     func didCommittedTextChangeByUser(newCommittedText: String, previousCommittedText: String) -> Bool {
@@ -1118,6 +1189,90 @@ class CustomInlineNSTextView: NSTextView {
         return false
     }
 
+    private func setupAnimatedGhostLayer() {
+        wantsLayer = true
+
+        animatedGhostTextLayer = CATextLayer()
+        animatedGhostTextLayer?.contentsScale = window?.backingScaleFactor ?? 2.0
+        animatedGhostTextLayer?.isHidden = true
+        layer?.addSublayer(animatedGhostTextLayer!)
+
+        animatedGhostTextMask = CAGradientLayer()
+        animatedGhostTextMask?.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        animatedGhostTextMask?.locations = [0, 0.01, 0.99, 1]
+        animatedGhostTextMask?.startPoint = CGPoint(x: 0, y: 0.5)
+        animatedGhostTextMask?.endPoint = CGPoint(x: 1, y: 0.5)
+
+        animatedGhostTextLayer?.mask = animatedGhostTextMask
+    }
+
+    private func updateAnimatedGhostLayer(isAnimating: Bool) {
+        guard let ghostRange = currentGhostTextRange, ghostRange.length > 0,
+              let ghostText = self.ghostText(),
+              let layoutManager = self.layoutManager,
+              let textContainer = self.textContainer else {
+            animatedGhostTextLayer?.isHidden = true
+            return
+        }
+
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: ghostRange, actualCharacterRange: nil)
+        var textRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        
+        // Adjust for text container insets
+        textRect.origin.x += self.textContainerOrigin.x
+        textRect.origin.y += self.textContainerOrigin.y
+
+        // Create gradient text
+        let gradient = NSGradient(colors: [NSColor.red, NSColor.systemPink])!
+        let attributedString = NSAttributedString(string: ghostText, attributes: [
+            .font: self.font ?? NSFont.systemFont(ofSize: 16),
+            .foregroundColor: NSColor.clear // This color is a placeholder, gradient is drawn over it
+        ])
+        
+        let textImage = NSImage(size: textRect.size, flipped: false) { rect in
+            gradient.draw(in: rect, angle: 0)
+            return true
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        animatedGhostTextLayer?.frame = textRect
+        animatedGhostTextLayer?.string = attributedString
+        animatedGhostTextLayer?.font = self.font
+        animatedGhostTextLayer?.fontSize = self.font?.pointSize ?? 16
+        animatedGhostTextLayer?.isHidden = false
+        animatedGhostTextMask?.frame = animatedGhostTextLayer?.bounds ?? .zero
+        
+        let maskLayer = CALayer()
+        maskLayer.frame = textRect
+        maskLayer.backgroundColor = NSColor.black.cgColor
+        
+        let gradientImageLayer = CALayer()
+        gradientImageLayer.frame = maskLayer.bounds
+        gradientImageLayer.contents = textImage
+        
+        maskLayer.addSublayer(gradientImageLayer)
+        
+        // This part is tricky. The best way is to render the text into an image and use that as the contents.
+        // For simplicity in this step, let's just color it. A true gradient requires more drawing code.
+        let gradientColor = NSColor(gradient: gradient, with: textRect.size)!
+        animatedGhostTextLayer?.foregroundColor = gradientColor.cgColor
+
+
+        CATransaction.commit()
+
+        if isAnimating {
+            animatedGhostTextMask?.removeAnimation(forKey: "revealAnimation")
+            let animation = CABasicAnimation(keyPath: "locations")
+            animation.fromValue = [0, 0, 0, 0]
+            animation.toValue = [0, 0.4, 0.6, 1]
+            animation.duration = 0.4
+            animation.isRemovedOnCompletion = false
+            animation.fillMode = .forwards
+            animatedGhostTextMask?.add(animation, forKey: "revealAnimation")
+        }
+    }
+
     func appendGhostTextToken(_ token: String) {
         guard let ts = self.textStorage, !token.isEmpty else { return }
 
@@ -1126,7 +1281,7 @@ class CustomInlineNSTextView: NSTextView {
         ts.beginEditing()
         let attributes: [NSAttributedString.Key: Any] = [
             .isGhostText: true,
-            .foregroundColor: NSColor.gray,
+            .foregroundColor: NSColor.clear, // Make original ghost text invisible
             .font: self.font ?? NSFont.systemFont(ofSize: 16)
         ]
         
@@ -1162,6 +1317,7 @@ class CustomInlineNSTextView: NSTextView {
             self.scrollRangeToVisible(finalGhostRange)
         }
         self.typingAttributes[.foregroundColor] = NSColor.textColor
+        updateAnimatedGhostLayer(isAnimating: true)
     }
 
     func clearGhostText() {
@@ -1177,6 +1333,7 @@ class CustomInlineNSTextView: NSTextView {
             ts.endEditing()
         }
         currentGhostTextRange = nil
+        updateAnimatedGhostLayer(isAnimating: false)
     }
 
     func acceptGhostText() {
@@ -1196,6 +1353,7 @@ class CustomInlineNSTextView: NSTextView {
             self.lastCommittedTextForChangeDetection = ts.string
         }
         currentGhostTextRange = nil
+        updateAnimatedGhostLayer(isAnimating: false)
     }
     
     func consumeGhostText(length: Int) {
@@ -1233,6 +1391,12 @@ class CustomInlineNSTextView: NSTextView {
         } else {
             acceptGhostText()
         }
+        updateAnimatedGhostLayer(isAnimating: false)
+    }
+
+    override func layout() {
+        super.layout()
+        updateAnimatedGhostLayer(isAnimating: false)
     }
 }
 
@@ -1296,4 +1460,15 @@ enum KeyCodes {
     static let leftArrow: UInt16 = 0x7B
     static let escape: UInt16 = 0x35
     static let enter: UInt16 = 0x24
+}
+
+extension NSColor {
+    convenience init?(gradient: NSGradient, with size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return nil }
+        let image = NSImage(size: size, flipped: false) { rect in
+            gradient.draw(in: rect, angle: 0)
+            return true
+        }
+        self.init(patternImage: image)
+    }
 }
