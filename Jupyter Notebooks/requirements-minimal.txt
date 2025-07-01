@@ -1,0 +1,10 @@
+torch
+tqdm
+datasets
+transformers
+numpy
+scikit-learn
+wandb
+librosa
+accelerate
+jiwer
