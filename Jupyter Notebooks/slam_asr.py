@@ -41,17 +41,18 @@ CONFIG = dict(
     speech_encoder="openai/whisper-small",
 
     # training hyper-params
-    batch_size=28,
-    epochs=1,
+    batch_size=24,
+    epochs=10,
     lr=1e-4,
     downsample_k=5,
     projector_hidden=2048,
 
     # validation & checkpointing
-    val_every_n_steps=1000,
+    val_every_n_steps=500,
     save_every_n_steps=50,
     warmup_steps=1000,
     val_test_size=0.05,
+    log_every_n_steps=10,
 
     # generation
     max_new_tokens=128,
@@ -60,7 +61,7 @@ CONFIG = dict(
     # wandb
     wandb=dict(
         project="slam-asr",
-        name="run-3",
+        name="run-10",
         resume="allow",
         entity=None,
         api_key="f2c28a0327b6e9b15d2d3a911be9d6cce58fcd39",
@@ -312,26 +313,34 @@ def train():
         start_epoch = checkpoint['epoch']
         global_step = checkpoint['global_step']
         best_val_loss = checkpoint['best_val_loss']
-        # To resume from the next batch, we need to know where we left off
         start_batch_idx = checkpoint['batch_idx'] + 1 
         
         print(f"Resuming from Epoch {start_epoch}, Step {global_step}")
 
     # --- 6. Training Loop ---
     for epoch in range(start_epoch, CONFIG["epochs"]):
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{CONFIG['epochs']}")
-        if start_batch_idx > 0:
-            # Update the progress bar description to show we're resuming
-            pbar.set_description(f"Epoch {epoch+1}/{CONFIG['epochs']} (resuming from step {global_step})")
+        
+        # --- Handle Resumption ---
+        current_train_data = train_data
+        initial_batch_idx = 0
 
+        if epoch == start_epoch and start_batch_idx > 0 and CONFIG["resume"]:
+            samples_to_skip = start_batch_idx * CONFIG['batch_size']
+            if samples_to_skip < len(train_data):
+                print(f"Resuming epoch {epoch}. Skipping {samples_to_skip} samples.")
+                current_train_data = train_data[samples_to_skip:]
+            else:
+                print(f"Epoch {epoch} already completed. Starting next epoch.")
+                continue # Skip to the next epoch
+
+        # Recreate dataset and dataloader for the current epoch state
+        epoch_train_dataset = AudioTextDataset(current_train_data, processor, tokenizer, CONFIG["zip_path"])
+        epoch_train_loader = DataLoader(epoch_train_dataset, batch_size=CONFIG['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=0)
+
+
+        pbar = tqdm(epoch_train_loader, desc=f"Epoch {epoch+1}/{CONFIG['epochs']}")
+        
         for batch_idx, batch in enumerate(pbar):
-            if start_batch_idx > 0:
-                if batch_idx < start_batch_idx:
-                    continue
-                if batch_idx == start_batch_idx:
-                    start_batch_idx = 0 # Reset for next epochs
-                    pbar.set_description(f"Epoch {epoch+1}/{CONFIG['epochs']}")
-
             if batch is None: continue
             optimizer.zero_grad(set_to_none=True)
 
@@ -373,9 +382,13 @@ def train():
             
             global_step += 1
             pbar.set_postfix({"loss": f"{loss.item():.3f}"})
-            print(f"DEBUG W&B: wandb.run is {wandb.run}, disabled: {wandb.run.disabled if wandb.run else 'N/A'}")
+
+            if global_step % CONFIG["log_every_n_steps"] == 0:
+                pbar.write(f"Step {global_step} | Train Loss: {loss.item():.4f}")
+            
+            # --- WandB Logging ---
             if wandb.run and not wandb.run.disabled:
-                wandb.log({"train/loss": loss.item(), "step": global_step}, commit=True)
+                wandb.log({"train/loss": loss.item(), "step": global_step})
 
             # --- Mid-epoch Checkpointing ---
             if global_step > 0 and global_step % CONFIG["save_every_n_steps"] == 0:
@@ -394,17 +407,22 @@ def train():
 
             # --- Mid-epoch Validation ---
             if global_step > 0 and global_step % CONFIG["val_every_n_steps"] == 0:
-                print(f"\nRunning validation at step {global_step}...")
+                pbar.write(f"\nRunning validation at step {global_step}...")
                 val_loss, val_wer, val_examples = evaluate(model, projector, speech_encoder_core, val_loader, tokenizer, device, dtype, CONFIG["downsample_k"], CONFIG["max_gen_tokens_eval"])
-                print(f"Step {global_step} | Validation Loss: {val_loss:.3f} | Validation WER: {val_wer:.2f}%")
+                
+                pbar.write("\n--- Validation Examples ---")
+                for example in val_examples:
+                    pbar.write(example)
+                pbar.write("-------------------------\n")
+
+                pbar.write(f"Step {global_step} | Validation Loss: {val_loss:.3f} | Validation WER: {val_wer:.2f}%")
 
                 if wandb.run and not wandb.run.disabled:
                     wandb.log({
                         "val/loss": val_loss,
                         "val/wer": val_wer,
-                        "val/examples": "\n".join(val_examples),
                         "step": global_step
-                    }, commit=True)
+                    })
                 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -431,8 +449,9 @@ def train():
                 "val/loss": val_loss,
                 "val/wer": val_wer,
                 "val/examples": "\n".join(val_examples),
-                "epoch": epoch + 1
-            }, commit=True)
+                "epoch": epoch + 1,
+                "step": global_step
+            })
 
         # Save latest checkpoint
         latest_checkpoint_path = os.path.join(CONFIG["output_dir"], "latest_checkpoint.pt")
@@ -479,6 +498,11 @@ if __name__ == "__main__":
                 resume="allow",
                 config=CONFIG,
             )
+            # Configure WandB to use 'step' key as the x-axis for these metrics
+            wandb.define_metric("train/loss", step_metric="step")
+            wandb.define_metric("val/loss", step_metric="step")
+            wandb.define_metric("train/wer", step_metric="step")
+            wandb.define_metric("val/wer", step_metric="step")
         except Exception as e:
             print(f"wandb login or init failed: {e}. Running in disabled mode.")
             wandb.init(mode="disabled")

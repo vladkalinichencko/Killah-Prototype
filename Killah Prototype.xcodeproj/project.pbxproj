@@ -8,20 +8,25 @@
 
 /* Begin PBXBuildFile section */
 		400286892DC78581002A3D68 /* Scripts in Resources */ = {isa = PBXBuildFile; fileRef = 400286882DC78581002A3D68 /* Scripts */; };
-		402DD5702E0460F600B1D444 /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 402DD56F2E0460F600B1D444 /* gemma-3-4b-pt-q4_0.gguf */; };
+		401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */; };
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
-		408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */; };
+		76B9C66D2E06EFE700B65D39 /* wav2vec2-xls-r-300m in Resources */ = {isa = PBXBuildFile; fileRef = 76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */; };
+		76D31FC22E01EC4A00F35B70 /* audio.py in Resources */ = {isa = PBXBuildFile; fileRef = 76D31FC12E01EC4A00F35B70 /* audio.py */; };
+		76ECC9942DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		400286882DC78581002A3D68 /* Scripts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Scripts; sourceTree = "<group>"; };
-		402DD56F2E0460F600B1D444 /* gemma-3-4b-pt-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-pt-q4_0.gguf"; path = "Resources/gemma-3-4b-pt-q4_0.gguf"; sourceTree = "<group>"; };
+		401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-pt-q4_0.gguf"; path = "Resources/gemma-3-4b-pt-q4_0.gguf"; sourceTree = "<group>"; };
 		408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = autocomplete.py; path = Resources/autocomplete.py; sourceTree = "<group>"; };
 		408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = requirements.txt; path = Resources/requirements.txt; sourceTree = "<group>"; };
 		408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */ = {isa = PBXFileReference; lastKnownFileType = file; name = minillm_export.pt; path = Resources/minillm_export.pt; sourceTree = "<group>"; };
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "wav2vec2-xls-r-300m"; path = "Resources/wav2vec2-xls-r-300m"; sourceTree = "<group>"; };
+		76D31FC12E01EC4A00F35B70 /* audio.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = audio.py; path = Resources/audio.py; sourceTree = "<group>"; };
+		76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-pt-q4_0.gguf"; path = "Resources/gemma-3-4b-pt-q4_0.gguf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -46,6 +51,9 @@
 		40C731562DC63936004D753D = {
 			isa = PBXGroup;
 			children = (
+				76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */,
+				76D31FC12E01EC4A00F35B70 /* audio.py */,
+				76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */,
 				408B41602DCBA8A800318056 /* Info.plist */,
 				408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */,
 				408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */,
@@ -53,7 +61,7 @@
 				400286882DC78581002A3D68 /* Scripts */,
 				40C731612DC63936004D753D /* Killah Prototype */,
 				40C731602DC63936004D753D /* Products */,
-				402DD56F2E0460F600B1D444 /* gemma-3-4b-pt-q4_0.gguf */,
+				401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */,
 			);
 			sourceTree = "<group>";
 		};
@@ -130,9 +138,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				408AC4C32DC7DAEF00ED87D4 /* minillm_export.pt in Resources */,
+				76B9C66D2E06EFE700B65D39 /* wav2vec2-xls-r-300m in Resources */,
+				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,
+				76ECC9942DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,
-				402DD5702E0460F600B1D444 /* gemma-3-4b-pt-q4_0.gguf in Resources */,
+				401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */,
 				400286892DC78581002A3D68 /* Scripts in Resources */,
 			);
@@ -302,6 +312,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = "Killah Prototype/Killah_Prototype.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -328,14 +339,14 @@
 				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 2.4;
 			};
 			name = Debug;
@@ -346,6 +357,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = "Killah Prototype/Killah_Prototype.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -372,14 +384,14 @@
 				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.4;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 2.4;
 			};
 			name = Release;
@@ -394,7 +406,7 @@
 				40C7316A2DC63938004D753D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
+			defaultConfigurationName = Release;
 		};
 		40C7316B2DC63938004D753D /* Build configuration list for PBXNativeTarget "Killah Prototype" */ = {
 			isa = XCConfigurationList;
@@ -403,7 +415,7 @@
 				40C7316D2DC63938004D753D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
