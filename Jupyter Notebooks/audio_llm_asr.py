@@ -380,10 +380,13 @@ def train(config: TrainingConfig, stage: int):
     speech_encoder = WhisperModel.from_pretrained(config.audio_encoder_model, torch_dtype=dtype).to(device).encoder
     
     tokenizer = AutoTokenizer.from_pretrained(config.llm_model, padding_side="left")
+    # Ensure pad_token differs from eos_token to avoid immediate generation stop
     if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     
     llm = AutoModelForCausalLM.from_pretrained(config.llm_model, torch_dtype=dtype, device_map={"": device})
+    # Resize token embeddings to accommodate newly added pad token
+    llm.resize_token_embeddings(len(tokenizer))
 
     # --- 2. LoRA ---
     lora_config = LoraConfig(

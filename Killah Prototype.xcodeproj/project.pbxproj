@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		400286892DC78581002A3D68 /* Scripts in Resources */ = {isa = PBXBuildFile; fileRef = 400286882DC78581002A3D68 /* Scripts */; };
+		401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */; };
+		401F13CB2E14FCEA00890957 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 4065646D2E08A5E700C323FB /* ZIPFoundation */; };
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
+		40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */ = {isa = PBXBuildFile; fileRef = 40C0B9A32E15258500F0DD0D /* main_llm.py */; };
 		76B9C66D2E06EFE700B65D39 /* wav2vec2-xls-r-300m in Resources */ = {isa = PBXBuildFile; fileRef = 76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */; };
 		76D31FC22E01EC4A00F35B70 /* audio.py in Resources */ = {isa = PBXBuildFile; fileRef = 76D31FC12E01EC4A00F35B70 /* audio.py */; };
-		76ECC9942DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,10 +24,10 @@
 		408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = requirements.txt; path = Resources/requirements.txt; sourceTree = "<group>"; };
 		408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */ = {isa = PBXFileReference; lastKnownFileType = file; name = minillm_export.pt; path = Resources/minillm_export.pt; sourceTree = "<group>"; };
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		40C0B9A32E15258500F0DD0D /* main_llm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = main_llm.py; path = Resources/main_llm.py; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "wav2vec2-xls-r-300m"; path = "Resources/wav2vec2-xls-r-300m"; sourceTree = "<group>"; };
 		76D31FC12E01EC4A00F35B70 /* audio.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = audio.py; path = Resources/audio.py; sourceTree = "<group>"; };
-		76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-pt-q4_0.gguf"; path = "Resources/gemma-3-4b-pt-q4_0.gguf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -41,6 +43,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				401F13CB2E14FCEA00890957 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -50,9 +53,9 @@
 		40C731562DC63936004D753D = {
 			isa = PBXGroup;
 			children = (
+				40C0B9A32E15258500F0DD0D /* main_llm.py */,
 				76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */,
 				76D31FC12E01EC4A00F35B70 /* audio.py */,
-				76ECC9932DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf */,
 				408B41602DCBA8A800318056 /* Info.plist */,
 				408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */,
 				408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */,
@@ -93,6 +96,7 @@
 			);
 			name = "Killah Prototype";
 			packageProductDependencies = (
+				4065646D2E08A5E700C323FB /* ZIPFoundation */,
 			);
 			productName = "Killah Prototype";
 			productReference = 40C7315F2DC63936004D753D /* Killah Prototype.app */;
@@ -106,7 +110,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1630;
-				LastUpgradeCheck = 1640;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					40C7315E2DC63936004D753D = {
 						CreatedOnToolsVersion = 16.3;
@@ -122,6 +126,9 @@
 			);
 			mainGroup = 40C731562DC63936004D753D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 40C731602DC63936004D753D /* Products */;
 			projectDirPath = "";
@@ -137,10 +144,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */,
 				76B9C66D2E06EFE700B65D39 /* wav2vec2-xls-r-300m in Resources */,
 				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,
-				76ECC9942DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,
+				401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */,
 				400286892DC78581002A3D68 /* Scripts in Resources */,
 			);
@@ -164,7 +172,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Python.framework",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Resources/Python.framework",
 				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Resources/venv",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -243,6 +251,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -300,6 +309,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -316,8 +326,11 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = FK825CF827;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				"INFOPLIST_FILE[sdk=*]" = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -335,9 +348,9 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "";
-				MACOSX_DEPLOYMENT_TARGET = 15.4;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -361,8 +374,11 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = FK825CF827;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				"INFOPLIST_FILE[sdk=*]" = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -380,9 +396,9 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "";
-				MACOSX_DEPLOYMENT_TARGET = 15.4;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -416,6 +432,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.9;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4065646D2E08A5E700C323FB /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 40C731572DC63936004D753D /* Project object */;
 }
