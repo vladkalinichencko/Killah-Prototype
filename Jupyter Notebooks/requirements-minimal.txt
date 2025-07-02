@@ -1,10 +1,12 @@
-torch
+torch>=2.0
+torchaudio
 tqdm
 datasets
-transformers
+transformers>=4.36.0
 numpy
 scikit-learn
 wandb
 librosa
 accelerate
 jiwer
+peft==0.15.2
