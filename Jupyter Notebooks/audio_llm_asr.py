@@ -341,7 +341,7 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
             
             # Store rich visualization examples
             if len(visualization_data) < 3:
-                embed_sample = str(projected_embeds[i, :2, :5].cpu().numpy().round(2))
+                embed_sample = str(projected_embeds[i, :2, :5].to(torch.float32).cpu().numpy().round(2))
                 audio_as_tokens = tokenizer.decode(indices_for_vis[i], skip_special_tokens=True)
                 
                 visualization_data.append({
