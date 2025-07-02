@@ -585,6 +585,8 @@ def train(config: TrainingConfig, stage: int):
             scaler.scale(loss).backward()
             
             if is_update_step:
+                scaler.unscale_(optimizer)
+                
                 # --- Grad Norm Metrics ---
                 grad_norm_before_clip = 0
                 for p in params_to_train:
@@ -593,7 +595,6 @@ def train(config: TrainingConfig, stage: int):
                         grad_norm_before_clip += param_norm.item() ** 2
                 grad_norm_before_clip = (grad_norm_before_clip ** 0.5) if grad_norm_before_clip > 0 else 0.0
 
-                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(params_to_train, 1.0)
                 
                 grad_norm_after_clip = 0
