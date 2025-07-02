@@ -470,6 +470,7 @@ def train(config: TrainingConfig, stage: int):
         print(f"Resuming from checkpoint: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=device)
         projector.load_state_dict(checkpoint['projector_state_dict'])
+        print(f"Loaded projector from checkpoint.")
         adapter_path_latest = os.path.join(config.output_dir, "latest_adapter")
         if os.path.isdir(adapter_path_latest):
             llm.load_adapter(adapter_path_latest, adapter_name="default", is_trainable=True)
