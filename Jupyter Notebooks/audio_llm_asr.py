@@ -445,7 +445,7 @@ def train(config: TrainingConfig, stage: int):
     print(f"Data split: {len(train_data)} training, {len(val_data)} validation.")
 
     train_dataset = AudioTextDataset(train_data, processor, tokenizer, config.zip_path)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=0, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
 
     val_dataset = AudioTextDataset(val_data, processor, tokenizer, config.zip_path)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
@@ -461,6 +461,7 @@ def train(config: TrainingConfig, stage: int):
 
     # --- 7. Checkpoint Loading ---
     start_epoch = 0
+    start_batch_idx = 0
     global_step = 0
     best_val_loss = float('inf')
     
@@ -480,8 +481,9 @@ def train(config: TrainingConfig, stage: int):
         scaler.load_state_dict(checkpoint['scaler_state_dict'])
         start_epoch = checkpoint['epoch']
         global_step = checkpoint['global_step']
+        start_batch_idx = checkpoint.get('batch_idx', 0) + 1
         best_val_loss = checkpoint.get('best_val_loss', float('inf'))
-        print(f"Resumed from Epoch {start_epoch}, Step {global_step}")
+        print(f"Resumed from Epoch {start_epoch}, Step {global_step}, Batch {start_batch_idx}")
     elif stage == 2:
         stage1_checkpoint_path = os.path.join(config.output_dir, "stage_1_best.pt")
         if os.path.exists(stage1_checkpoint_path):
@@ -507,9 +509,28 @@ def train(config: TrainingConfig, stage: int):
             speech_encoder.eval()
             llm.get_input_embeddings().weight.requires_grad_(True)
         
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Stage {stage}]")
+        # --- Handle Resumption ---
+        current_train_data = train_data
         
-        for i, batch in enumerate(pbar):
+        if epoch == start_epoch and start_batch_idx > 0 and config.resume:
+            samples_to_skip = start_batch_idx * batch_size
+            if samples_to_skip < len(train_data):
+                print(f"Resuming epoch {epoch}. Skipping {samples_to_skip} samples.")
+                current_train_data = train_data[samples_to_skip:]
+            else:
+                print(f"Epoch {epoch} already completed. Starting next epoch.")
+                start_batch_idx = 0  # Reset for next epoch
+                continue  # Skip to the next epoch
+        
+        # Recreate dataset and dataloader for the current epoch state
+        epoch_train_dataset = AudioTextDataset(current_train_data, processor, tokenizer, config.zip_path)
+        epoch_train_loader = DataLoader(epoch_train_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
+        
+        initial_batch_idx = start_batch_idx if epoch == start_epoch else 0
+        total_batches = len(epoch_train_loader) + initial_batch_idx
+        pbar = tqdm(epoch_train_loader, desc=f"Epoch {epoch+1}/{epochs} [Stage {stage}]", initial=initial_batch_idx, total=total_batches)
+        
+        for i, batch in enumerate(pbar, start=initial_batch_idx):
             is_update_step = (i + 1) % config.gradient_accumulation_steps == 0
             
             if batch is None: continue
@@ -597,7 +618,8 @@ def train(config: TrainingConfig, stage: int):
                     "lr": f"{optimizer.param_groups[0]['lr']:.2e}",
                     "gn": f"{grad_norm_after_clip:.2f}",
                     "cos_sim": f"{cosine_sim_metric:.2f}",
-                    "mem_gb": f"{gpu_mem_alloc:.2f}"
+                    "mem_gb": f"{gpu_mem_alloc:.2f}",
+                    "time": datetime.now().strftime("%H:%M:%S")
                 })
 
                 if global_step % config.log_every_n_steps == 0:
@@ -622,6 +644,7 @@ def train(config: TrainingConfig, stage: int):
                     latest_checkpoint_path = os.path.join(config.output_dir, f"stage_{stage}_latest.pt")
                     torch.save({
                         'epoch': epoch, 
+                        'batch_idx': i,
                         'global_step': global_step,
                         'projector_state_dict': projector.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
@@ -666,6 +689,9 @@ def train(config: TrainingConfig, stage: int):
                         }, best_checkpoint_path)
                         llm.save_pretrained(os.path.join(config.output_dir, "best_adapter"))
                         pbar.write(f"--- New Best Model ---\nSaved new best model at step {global_step} with val_loss: {best_val_loss:.3f}\n----------------------\n")
+        
+        # Reset start_batch_idx for next epoch
+        start_batch_idx = 0
 
 # ----------------------------
 # 6.  Entry-point
