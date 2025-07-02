@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		400286892DC78581002A3D68 /* Scripts in Resources */ = {isa = PBXBuildFile; fileRef = 400286882DC78581002A3D68 /* Scripts */; };
-		401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */; };
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		76B9C66D2E06EFE700B65D39 /* wav2vec2-xls-r-300m in Resources */ = {isa = PBXBuildFile; fileRef = 76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */; };
@@ -142,7 +141,6 @@
 				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,
 				76ECC9942DFAEA540028BB18 /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,
-				401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */,
 				400286892DC78581002A3D68 /* Scripts in Resources */,
 			);

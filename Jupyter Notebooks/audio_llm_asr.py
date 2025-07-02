@@ -52,7 +52,7 @@ class TrainingConfig:
 
     # LoRA
     lora_r: int = 32
-    lora_alpha: int = 32
+    lora_alpha: int = 16
     lora_dropout: float = 0.1
     lora_target_modules: List[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
     init_lora_weights: bool = True
@@ -67,15 +67,15 @@ class TrainingConfig:
     gradient_accumulation_steps: int = 2
     epochs_stage1: int = 10
     epochs_stage2: int = 2
-    lr_stage1: float = 1e-4
+    lr_stage1: float = 2e-5
     lr_stage2: float = 1e-5
     warmup_steps: int = 1000
     val_test_size: float = 0.05
     
     # Checkpointing & Logging
     resume: bool = True
-    val_every_n_steps: int = 500
-    save_every_n_steps: int = 500
+    val_every_n_steps: int = 250
+    save_every_n_steps: int = 50
     log_every_n_steps: int = 10
     
     # Generation
@@ -469,7 +469,12 @@ def train(config: TrainingConfig, stage: int):
         print(f"Resuming from checkpoint: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=device)
         projector.load_state_dict(checkpoint['projector_state_dict'])
-        llm.load_adapter(config.output_dir, adapter_name="default", is_trainable=True)
+        adapter_path_latest = os.path.join(config.output_dir, "latest_adapter")
+        if os.path.isdir(adapter_path_latest):
+            llm.load_adapter(adapter_path_latest, adapter_name="default", is_trainable=True)
+            print(f"Loaded adapter from {adapter_path_latest}.")
+        else:
+            print(f"Adapter directory {adapter_path_latest} not found. Skipping adapter load.")
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         scaler.load_state_dict(checkpoint['scaler_state_dict'])
@@ -483,8 +488,12 @@ def train(config: TrainingConfig, stage: int):
             print(f"Initializing Stage 2 with best checkpoint from Stage 1: {stage1_checkpoint_path}")
             checkpoint = torch.load(stage1_checkpoint_path, map_location=device)
             projector.load_state_dict(checkpoint['projector_state_dict'])
-            adapter_path = os.path.join(config.output_dir, "best_adapter")
-            llm.load_adapter(adapter_path, adapter_name="default", is_trainable=True)
+            adapter_path_best = os.path.join(config.output_dir, "best_adapter")
+            if os.path.isdir(adapter_path_best):
+                llm.load_adapter(adapter_path_best, adapter_name="default", is_trainable=True)
+                print(f"Loaded adapter from {adapter_path_best}.")
+            else:
+                print(f"Adapter directory {adapter_path_best} not found. Proceeding without loading adapter.")
         else:
             print("Warning: Stage 1 checkpoint not found for Stage 2 initialization.")
 
@@ -620,7 +629,7 @@ def train(config: TrainingConfig, stage: int):
                         'scaler_state_dict': scaler.state_dict(),
                         'best_val_loss': best_val_loss,
                     }, latest_checkpoint_path)
-                    llm.save_adapter(config.output_dir, "latest_adapter")
+                    llm.save_pretrained(os.path.join(config.output_dir, "latest_adapter"))
                     pbar.write(f"\n--- Checkpoint Saved ---\nSaved latest model at step {global_step}.\n------------------------\n")
 
                 if global_step > 0 and global_step % config.val_every_n_steps == 0:
@@ -655,7 +664,7 @@ def train(config: TrainingConfig, stage: int):
                             'scaler_state_dict': scaler.state_dict(),
                             'best_val_loss': best_val_loss,
                         }, best_checkpoint_path)
-                        llm.save_adapter(os.path.join(config.output_dir, "best_adapter"))
+                        llm.save_pretrained(os.path.join(config.output_dir, "best_adapter"))
                         pbar.write(f"--- New Best Model ---\nSaved new best model at step {global_step} with val_loss: {best_val_loss:.3f}\n----------------------\n")
 
 # ----------------------------
