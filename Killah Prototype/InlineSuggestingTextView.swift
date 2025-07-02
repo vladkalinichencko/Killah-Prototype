@@ -4,6 +4,7 @@ import AppKit
 import QuartzCore
 
 struct InlineSuggestingTextView: NSViewRepresentable {
+    @EnvironmentObject var themeManager: ThemeManager
     @Binding var text: String
     @ObservedObject var llmEngine: LLMEngine
     @ObservedObject var audioEngine: AudioEngine
@@ -455,6 +456,39 @@ class Coordinator: NSObject, NSTextViewDelegate {
             self.currentCommittedText = newCommittedTextFromTextView
         }
         
+        /// Удаляет headIndent / firstLineHeadIndent у абзацев, где маркер списка стёрт вручную
+        private func cleanOrphanedListIndentation(in textView: CustomInlineNSTextView) {
+            guard let textStorage = textView.textStorage else { return }
+            let fullText = textStorage.string as NSString
+
+            textStorage.beginEditing()
+            fullText.enumerateSubstrings(in: NSRange(location: 0, length: fullText.length), options: .byParagraphs) { _, paraRange, _, _ in
+                let paragraphString = fullText.substring(with: paraRange)
+
+                // Если строка начинается с bullet "• " или нумерацией "1. " – пропускаем
+                let bulletPattern = "^\\s*•\\s+"
+                let numberPattern = "^\\s*\\d+\\.\\s+"
+                let bulletMatch = paragraphString.range(of: bulletPattern, options: .regularExpression) != nil
+                let numberMatch = paragraphString.range(of: numberPattern, options: .regularExpression) != nil
+
+                guard !bulletMatch && !numberMatch else { return }
+
+                if let ps = textStorage.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle {
+                    if ps.textLists.isEmpty && (ps.headIndent != 0 || ps.firstLineHeadIndent != 0) {
+                        let mps = ps.mutableCopy() as! NSMutableParagraphStyle
+                        mps.headIndent = 0
+                        mps.firstLineHeadIndent = 0
+                        if mps.textLists.isEmpty && mps.headIndent == 0 && mps.firstLineHeadIndent == 0 {
+                            textStorage.removeAttribute(.paragraphStyle, range: paraRange)
+                        } else {
+                            textStorage.addAttribute(.paragraphStyle, value: mps, range: paraRange)
+                        }
+                    }
+                }
+            }
+            textStorage.endEditing()
+        }
+        
         private func updateTextBinding(with newText: String) {
             if parent.text != newText {
                 isInternallyUpdatingTextBinding = true
@@ -888,6 +922,9 @@ class CustomInlineNSTextView: NSTextView {
     private var lastCommittedTextForChangeDetection: String = ""
     var lastMouseUpCharIndex: Int? = nil
 
+    private var animatedGhostTextLayer: CATextLayer?
+    private var animatedGhostTextMask: CAGradientLayer?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         notifyDelegate()
@@ -915,6 +952,8 @@ class CustomInlineNSTextView: NSTextView {
             self.autoresizingMask = [.width]
         }
         self.lastCommittedTextForChangeDetection = self.string
+
+        setupAnimatedGhostLayer()
     }
     
     convenience override init(frame frameRect: NSRect) {
@@ -1084,6 +1123,7 @@ class CustomInlineNSTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         notifyDelegate()
+        updateAnimatedGhostLayer(isAnimating: false)
     }
 
     func didCommittedTextChangeByUser(newCommittedText: String, previousCommittedText: String) -> Bool {
@@ -1118,6 +1158,90 @@ class CustomInlineNSTextView: NSTextView {
         return false
     }
 
+    private func setupAnimatedGhostLayer() {
+        wantsLayer = true
+
+        animatedGhostTextLayer = CATextLayer()
+        animatedGhostTextLayer?.contentsScale = window?.backingScaleFactor ?? 2.0
+        animatedGhostTextLayer?.isHidden = true
+        layer?.addSublayer(animatedGhostTextLayer!)
+
+        animatedGhostTextMask = CAGradientLayer()
+        animatedGhostTextMask?.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        animatedGhostTextMask?.locations = [0, 0.01, 0.99, 1]
+        animatedGhostTextMask?.startPoint = CGPoint(x: 0, y: 0.5)
+        animatedGhostTextMask?.endPoint = CGPoint(x: 1, y: 0.5)
+
+        animatedGhostTextLayer?.mask = animatedGhostTextMask
+    }
+
+    private func updateAnimatedGhostLayer(isAnimating: Bool) {
+        guard let ghostRange = currentGhostTextRange, ghostRange.length > 0,
+              let ghostText = self.ghostText(),
+              let layoutManager = self.layoutManager,
+              let textContainer = self.textContainer else {
+            animatedGhostTextLayer?.isHidden = true
+            return
+        }
+
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: ghostRange, actualCharacterRange: nil)
+        var textRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        
+        // Adjust for text container insets
+        textRect.origin.x += self.textContainerOrigin.x
+        textRect.origin.y += self.textContainerOrigin.y
+
+        // Create gradient text
+        let gradient = NSGradient(colors: [NSColor.red, NSColor.systemPink])!
+        let attributedString = NSAttributedString(string: ghostText, attributes: [
+            .font: self.font ?? NSFont.systemFont(ofSize: 16),
+            .foregroundColor: NSColor.clear // This color is a placeholder, gradient is drawn over it
+        ])
+        
+        let textImage = NSImage(size: textRect.size, flipped: false) { rect in
+            gradient.draw(in: rect, angle: 0)
+            return true
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        animatedGhostTextLayer?.frame = textRect
+        animatedGhostTextLayer?.string = attributedString
+        animatedGhostTextLayer?.font = self.font
+        animatedGhostTextLayer?.fontSize = self.font?.pointSize ?? 16
+        animatedGhostTextLayer?.isHidden = false
+        animatedGhostTextMask?.frame = animatedGhostTextLayer?.bounds ?? .zero
+        
+        let maskLayer = CALayer()
+        maskLayer.frame = textRect
+        maskLayer.backgroundColor = NSColor.black.cgColor
+        
+        let gradientImageLayer = CALayer()
+        gradientImageLayer.frame = maskLayer.bounds
+        gradientImageLayer.contents = textImage
+        
+        maskLayer.addSublayer(gradientImageLayer)
+        
+        // This part is tricky. The best way is to render the text into an image and use that as the contents.
+        // For simplicity in this step, let's just color it. A true gradient requires more drawing code.
+        let gradientColor = NSColor(gradient: gradient, with: textRect.size)!
+        animatedGhostTextLayer?.foregroundColor = gradientColor.cgColor
+
+
+        CATransaction.commit()
+
+        if isAnimating {
+            animatedGhostTextMask?.removeAnimation(forKey: "revealAnimation")
+            let animation = CABasicAnimation(keyPath: "locations")
+            animation.fromValue = [0, 0, 0, 0]
+            animation.toValue = [0, 0.4, 0.6, 1]
+            animation.duration = 0.4
+            animation.isRemovedOnCompletion = false
+            animation.fillMode = .forwards
+            animatedGhostTextMask?.add(animation, forKey: "revealAnimation")
+        }
+    }
+
     func appendGhostTextToken(_ token: String) {
         guard let ts = self.textStorage, !token.isEmpty else { return }
 
@@ -1126,7 +1250,7 @@ class CustomInlineNSTextView: NSTextView {
         ts.beginEditing()
         let attributes: [NSAttributedString.Key: Any] = [
             .isGhostText: true,
-            .foregroundColor: NSColor.gray,
+            .foregroundColor: NSColor.clear, // Make original ghost text invisible
             .font: self.font ?? NSFont.systemFont(ofSize: 16)
         ]
         
@@ -1162,6 +1286,7 @@ class CustomInlineNSTextView: NSTextView {
             self.scrollRangeToVisible(finalGhostRange)
         }
         self.typingAttributes[.foregroundColor] = NSColor.textColor
+        updateAnimatedGhostLayer(isAnimating: true)
     }
 
     func clearGhostText() {
@@ -1177,6 +1302,7 @@ class CustomInlineNSTextView: NSTextView {
             ts.endEditing()
         }
         currentGhostTextRange = nil
+        updateAnimatedGhostLayer(isAnimating: false)
     }
 
     func acceptGhostText() {
@@ -1196,6 +1322,7 @@ class CustomInlineNSTextView: NSTextView {
             self.lastCommittedTextForChangeDetection = ts.string
         }
         currentGhostTextRange = nil
+        updateAnimatedGhostLayer(isAnimating: false)
     }
     
     func consumeGhostText(length: Int) {
@@ -1233,12 +1360,84 @@ class CustomInlineNSTextView: NSTextView {
         } else {
             acceptGhostText()
         }
+        updateAnimatedGhostLayer(isAnimating: false)
+    }
+
+    override func layout() {
+        super.layout()
+        updateAnimatedGhostLayer(isAnimating: false)
     }
 }
 
 class CustomLayoutManager: NSLayoutManager {
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        // Draw the text first
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+
+        guard let textStorage = self.textStorage else { return }
+        let fullString = textStorage.string as NSString
+        let maxCharIndex = fullString.length
+
+        // Convert the starting glyph index to a character index
+        var charIndex = self.characterIndexForGlyph(at: glyphsToShow.location)
+
+        while charIndex < maxCharIndex {
+            let paraRange = fullString.paragraphRange(for: NSRange(location: charIndex, length: 0))
+
+            if let ps = textStorage.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle,
+               let list = ps.textLists.first {
+
+                // Determine item number by counting previous paragraphs that belong to the same list format
+                var itemNumber = 1
+                var searchLocation = paraRange.location
+                while searchLocation > 0 {
+                    let prevParaRange = fullString.paragraphRange(for: NSRange(location: searchLocation - 1, length: 0))
+                    if let prevPS = textStorage.attribute(.paragraphStyle, at: prevParaRange.location, effectiveRange: nil) as? NSParagraphStyle,
+                       prevPS.textLists.first?.markerFormat == list.markerFormat {
+                        itemNumber += 1
+                        searchLocation = prevParaRange.location
+                    } else {
+                        break
+                    }
+                }
+
+                var markerString = list.marker(forItemNumber: itemNumber)
+                if list.markerFormat == .decimal {
+                    // Ensure number ends with a dot for conventional style
+                    let trimmed = markerString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.contains(".") {
+                        markerString = "\(itemNumber)."
+                    }
+                }
+                // Remove the trailing tab that AppKit adds so it doesn't affect measurement/drawing
+                if markerString.hasSuffix("\t") {
+                    markerString.removeLast()
+                }
+
+                var charLoc = paraRange.location
+                if charLoc >= fullString.length { charLoc = max(0, fullString.length - 1) }
+                let firstGlyphIdx = min(self.numberOfGlyphs - 1, self.glyphIndexForCharacter(at: charLoc))
+                let lineRect = self.lineFragmentRect(forGlyphAt: firstGlyphIdx, effectiveRange: nil, withoutAdditionalLayout: true)
+
+                // Determine font attributes for marker rendering
+                let font = textStorage.attribute(.font, at: paraRange.location, effectiveRange: nil) as? NSFont ?? NSFont.systemFont(ofSize: 13)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor.textColor
+                ]
+                let markerSize = (markerString as NSString).size(withAttributes: attrs)
+
+                // usedRect gives the actual glyph area; its minX already includes paragraph indent.
+                let usedRect = self.lineFragmentUsedRect(forGlyphAt: firstGlyphIdx, effectiveRange: nil, withoutAdditionalLayout: true)
+
+                // Draw marker just before the used rect
+                let x = usedRect.minX + origin.x - markerSize.width - 6
+                let y = lineRect.minY + origin.y + (lineRect.height - markerSize.height) / 2
+
+                (markerString as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+            }
+            charIndex = NSMaxRange(paraRange)
+        }
     }
 }
 

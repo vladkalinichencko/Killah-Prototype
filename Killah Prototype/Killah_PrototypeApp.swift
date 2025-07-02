@@ -28,6 +28,7 @@ struct Killah_PrototypeApp: App {
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .onAppear {
                     if let window = NSApplication.shared.windows.first {
+                        themeManager.applyTheme(to: window)
                         window.styleMask.insert(.fullSizeContentView)
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
@@ -37,10 +38,20 @@ struct Killah_PrototypeApp: App {
                         window.titlebarAppearsTransparent = true
                     }
                 }
+                .onChange(of: themeManager.currentTheme) { _, newTheme in
+                    DispatchQueue.main.async {
+                        themeManager.applyTheme(to: NSApplication.shared.windows.first)
+                    }
+                }
         }
         .windowStyle(.automatic)
         .commands {
             MenuCommands()
+        }
+        
+        Settings {
+            SettingsView(modelManager: modelManager)
+                .environmentObject(themeManager)
         }
     }
 }

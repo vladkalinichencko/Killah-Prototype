@@ -22,6 +22,7 @@
 		401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-pt-q4_0.gguf"; path = "Resources/gemma-3-4b-pt-q4_0.gguf"; sourceTree = "<group>"; };
 		408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = autocomplete.py; path = Resources/autocomplete.py; sourceTree = "<group>"; };
 		408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = requirements.txt; path = Resources/requirements.txt; sourceTree = "<group>"; };
+		408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */ = {isa = PBXFileReference; lastKnownFileType = file; name = minillm_export.pt; path = Resources/minillm_export.pt; sourceTree = "<group>"; };
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C0B9A32E15258500F0DD0D /* main_llm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = main_llm.py; path = Resources/main_llm.py; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -56,6 +57,7 @@
 				76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */,
 				76D31FC12E01EC4A00F35B70 /* audio.py */,
 				408B41602DCBA8A800318056 /* Info.plist */,
+				408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */,
 				408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */,
 				408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */,
 				400286882DC78581002A3D68 /* Scripts */,

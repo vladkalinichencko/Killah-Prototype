@@ -72,21 +72,21 @@ mkdir -p "$RESOURCES_DIR"
 # ===================================================================
 
 get_python_framework() {
-  local framework_dst="$FRAMEWORKS_DIR/Python.framework"
+  local framework_dst="$RESOURCES_DIR/Python.framework"
   
   if [ -d "$PYTHON_FRAMEWORK_LOCAL" ]; then
     echo "📋 Копируем локальный Python.framework..."
     
     # Умное копирование: сначала пытаемся с разыменованием символических ссылок
     echo "🔗 Пытаемся скопировать с разыменованием символических ссылок..."
-    if cp -R -L "$PYTHON_FRAMEWORK_LOCAL" "$FRAMEWORKS_DIR/" 2>/dev/null; then
+    if cp -R -L "$PYTHON_FRAMEWORK_LOCAL" "$RESOURCES_DIR/" 2>/dev/null; then
       echo "✅ Локальный Python.framework скопирован с полным разыменованием ссылок"
     else
       echo "⚠️  Не удалось скопировать с разыменованием (битые симлинки), пробуем без разыменования..."
       # Удаляем частично скопированный фреймворк если он есть
       [ -d "$framework_dst" ] && rm -rf "$framework_dst"
       
-      if cp -R -P "$PYTHON_FRAMEWORK_LOCAL" "$FRAMEWORKS_DIR/" 2>/dev/null; then
+      if cp -R -P "$PYTHON_FRAMEWORK_LOCAL" "$RESOURCES_DIR/" 2>/dev/null; then
         echo "✅ Локальный Python.framework скопирован без разыменования ссылок"
       else
         echo "❌ Стандартное копирование не работает, используем rsync или выборочное копирование..."
@@ -130,14 +130,14 @@ get_python_framework() {
         echo "📋 Копируем распакованный Python.framework..."
         
         # Применяем ту же умную логику копирования для скачанного фреймворка
-        if cp -R -L "$extracted_framework" "$FRAMEWORKS_DIR/" 2>/dev/null; then
+        if cp -R -L "$extracted_framework" "$RESOURCES_DIR/" 2>/dev/null; then
           echo "✅ Python.framework из архива скопирован с полным разыменованием ссылок"
         else
           echo "⚠️  Не удалось скопировать с разыменованием, пробуем без разыменования..."
           # Удаляем частично скопированный фреймворк если он есть
           [ -d "$framework_dst" ] && rm -rf "$framework_dst"
           
-          if cp -R -P "$extracted_framework" "$FRAMEWORKS_DIR/" 2>/dev/null; then
+          if cp -R -P "$extracted_framework" "$RESOURCES_DIR/" 2>/dev/null; then
             echo "✅ Python.framework из архива скопирован без разыменования ссылок"
           else
             echo "🔄 Используем выборочное копирование..."
@@ -194,7 +194,7 @@ get_python_framework
 
 # Автоопределение версии Python
 echo "📋 Определяем версию Python..."
-ACTUAL_PYTHON_VERSION=$(ls "$FRAMEWORKS_DIR/Python.framework/Versions/" | grep -E "^[0-9]+\.[0-9]+$" | head -1)
+ACTUAL_PYTHON_VERSION=$(ls "$RESOURCES_DIR/Python.framework/Versions/" | grep -E "^[0-9]+\.[0-9]+$" | head -1)
 if [ -n "$ACTUAL_PYTHON_VERSION" ]; then
   PYTHON_VERSION="$ACTUAL_PYTHON_VERSION"
   echo "✅ Обнаружена версия Python: $PYTHON_VERSION"
@@ -207,13 +207,17 @@ fi
 # ===================================================================
 
 echo "📋 Создаем venv..."
-PYTHON_BIN="$FRAMEWORKS_DIR/Python.framework/Versions/$PYTHON_VERSION/bin/python3"
+PYTHON_BIN="$RESOURCES_DIR/Python.framework/Versions/$PYTHON_VERSION/bin/python3"
 
 if [ ! -f "$PYTHON_BIN" ]; then
   echo "❌ Python binary не найден: $PYTHON_BIN"
-  echo "💡 Доступные версии: $(ls "$FRAMEWORKS_DIR/Python.framework/Versions/" || echo "нет")"
+  echo "💡 Доступные версии: $(ls "$RESOURCES_DIR/Python.framework/Versions/" || echo "нет")"
   exit 1
 fi
+
+# Удаляем старый venv, чтобы избежать ошибок
+echo "🗑️  Удаляем старый venv, если он существует..."
+rm -rf "$VENV_DST"
 
 "$PYTHON_BIN" -m venv "$VENV_DST"
 echo "✅ venv создан"
@@ -224,8 +228,10 @@ echo "✅ venv создан"
 
 echo "📋 Устанавливаем зависимости..."
 source "$VENV_DST/bin/activate"
-pip install --upgrade pip
-pip install -r "$PROJECT_DIR/Resources/requirements.txt"
+
+echo "💿 Устанавливаем пакеты (сначала из кэша, потом из сети)..."
+pip install --find-links="$PROJECT_DIR/Resources/wheels" -r "$PROJECT_DIR/Resources/requirements.txt"
+
 deactivate
 echo "✅ Зависимости установлены"
 
@@ -276,6 +282,6 @@ echo "✅ Переподписано"
 echo "🎉 УПАКОВКА ЗАВЕРШЕНА УСПЕШНО!"
 echo "📊 Статистика:"
 echo "   Размер приложения: $(du -sh "$APP_PATH" 2>/dev/null || echo "Не удалось определить")"
-echo "   Python.framework: $(du -sh "$FRAMEWORKS_DIR/Python.framework" 2>/dev/null || echo "Не удалось определить")"
+echo "   Python.framework: $(du -sh "$RESOURCES_DIR/Python.framework" 2>/dev/null || echo "Не удалось определить")"
 echo "   venv: $(du -sh "$VENV_DST" 2>/dev/null || echo "Не удалось определить")"
 echo "   Время завершения: $(date)"

@@ -63,6 +63,47 @@ struct ContentView: View {
     @State private var isRightAlignActive  = false
 
     var body: some View {
+        ZStack {
+            // Main editor UI
+            editorView
+        }
+        .onAppear {
+            updateToolbarStates()
+            if modelManager.status == .ready {
+                llmEngine.startEngine(for: "autocomplete")
+                llmEngine.startEngine(for: "audio")
+            }
+        }
+        .task {
+            // Проверяем наличие моделей вне фазы построения вью, чтобы избежать предупреждения SwiftUI
+            modelManager.verifyModels()
+        }
+        .onChange(of: modelManager.status) { _, newStatus in
+            switch newStatus {
+            case .ready:
+                llmEngine.startEngine(for: "autocomplete")
+                llmEngine.startEngine(for: "audio")
+            case .needsDownloading:
+                showDownloadAlert()
+                DispatchQueue.main.async {
+                    llmEngine.stopEngine()
+                }
+            default:
+                break
+            }
+        }
+        .sheet(isPresented: $showModelDownloadSheet) {
+            ModelDownloadView(
+                modelManager: modelManager,
+                missingFiles: (modelManager.status.missingFiles ?? []),
+                isDownloading: modelManager.status.isDownloading,
+                downloadProgress: modelManager.status.progress
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private var editorView: some View {
         ZStack(alignment: .top) {
             // Фон, соответствующий титлбару
             Color.clear
@@ -184,5 +225,37 @@ struct ContentView_Previews: PreviewProvider {
         // 2) Прокидываем оба environmentObject
         .environmentObject(llmEngine)
         .environmentObject(audioEngine)
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        let modelManager = ModelManager()
+        let llmEngine = LLMEngine(modelManager: modelManager)
+        let audioEngine = AudioEngine(llmEngine: llmEngine)
+        
+        ContentView(
+            document: .constant(TextDocument())
+        )
+        .environmentObject(llmEngine)
+        .environmentObject(audioEngine)
+        .environmentObject(modelManager)
+    }
+}
+
+extension ModelManager.ModelStatus {
+    var isDownloading: Bool {
+        if case .downloading = self { return true }
+        return false
+    }
+    
+    var progress: Double {
+        if case .downloading(let progress) = self { return progress }
+        return 0
+    }
+    
+    var missingFiles: [ModelManager.ModelFile]? {
+        if case .needsDownloading(let files) = self { return files }
+        return nil
     }
 }

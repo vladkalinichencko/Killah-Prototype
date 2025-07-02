@@ -113,6 +113,7 @@ class LLMEngine: ObservableObject {
 
     deinit {
         print("🗑️ LLMEngine deinit - Stopping engine.")
+        print(Thread.callStackSymbols.joined(separator: "\n"))
         stopEngine()
     }
 }
