@@ -18,83 +18,104 @@ All capabilities are built upon this base using a LoRA-centric approach, startin
 
 ### 1.3. Architecture Principles
 
-The architecture of "lil Pushkin" is built around **LoRA Composition** - a modular approach where independent LoRA adapters can be dynamically combined to create different capabilities. This is fundamentally different from traditional fine-tuning approaches.
+The architecture of "lil Pushkin" is built around **MLP-Projector Integration** - a multimodal approach inspired by Llama-AVSR research where audio embeddings are projected into LLM text space through learnable adapters. This follows the proven methodology from "Large Language Models are Strong Audio-Visual Speech Recognition Learners" (ICASSP 2025).
 
 We start with a **Clean Base Model** using Google Gemma 3 4B that hasn't undergone extensive RLHF (Reinforcement Learning from Human Feedback). Most commercial models are heavily fine-tuned to be "safe" and "helpful," which often makes them sound generic and corporate. By starting with a less processed model, we maintain the raw stylistic capabilities that make genuine personalization possible.
 
-Our **Modular LoRA Architecture** consists of three independent, composable adapters:
+Our **Multimodal Architecture** consists of three core components working in harmony:
 
-**Persona LoRA** is trained directly on the base model to learn stylistic adaptation using the PersonaPlugs methodology. This adapter focuses purely on capturing and reproducing writing style patterns without any task-specific behavior.
+**Audio Processing Pipeline** uses a frozen Wav2Vec2-XLS-R-300M encoder to extract audio embeddings, which are then projected into Gemma's text space through a specialized MLP projector. This projector consists of LayerNorm → Linear(audio_dim, llm_dim×2) → GELU → Dropout(0.1) → Linear(llm_dim×2, llm_dim) → LayerNorm architecture for stable training.
 
-**Task-Specific LoRAs** are trained independently on the base model for specific writing tasks (continuation, rephrasing, summarization). Each task LoRA learns its specific capability without style considerations - the style comes from the Persona LoRA when they're composed.
+**Persona LoRA Layer** is trained on top of the base model to learn stylistic adaptation using the PersonaPlugs methodology. This adapter focuses purely on capturing and reproducing writing style patterns while working seamlessly with audio inputs.
 
-**Audio LoRA** handles multimodal input processing, converting audio embeddings into text space and managing voice commands. It's trained independently to handle audio-to-text projection and command recognition.
+**Task-Specific LoRAs** are built upon the Persona LoRA foundation for specific writing tasks (continuation, rephrasing, summarization). These LoRAs inherit the personalization capabilities while adding task-specific behaviors.
 
-**Dynamic Composition at Runtime** follows a consistent pattern where personalization and audio capabilities are always available in interactive scenarios:
+**Training Pipeline** follows a structured approach:
+
+- **Audio MLP Projector Training:** Curriculum learning from basic transcription to emotion recognition
+- **PersonaPlugs MLP Projector Training:** Document embeddings to LLM space projection
+- **Task-Specific LoRA Training:** Specialized adapters for different writing tasks
+- **DPO Refinement:** Quality optimization across all components
+
+**Dynamic Composition at Runtime** follows a consistent pattern where both audio and persona understanding are available:
 
 - **Pure autocomplete only:** `Base + Task` (minimal composition for maximum speed)
-- **Text writing/rewriting:** `Base + Persona + Audio + Task` (personalized style with voice capability)
-- **Voice dictation:** `Base + Persona + Audio + Task` (full multimodal with personalization)
-- **Interactive editing:** `Base + Persona + Audio + Task` (personalized assistance with voice feedback)
+- **Audio transcription:** `Base + Audio-Projector` (direct speech-to-text)
+- **Personalized writing:** `Base + Persona-Projector + Persona + Task` (full personalization)
+- **Multimodal personalized:** `Base + Audio-Projector + Persona-Projector + Persona + Task` (complete system)
 
-This architecture ensures that **Persona LoRA (personalization) and Audio LoRA are the default for all meaningful user interactions**, providing consistent personalized experience and voice integration. Only pure autocomplete operates without them for optimal typing performance.
+This architecture ensures that **both MLP projectors work together seamlessly**, providing consistent multimodal and personalized experience while maintaining computational efficiency through selective quantization.
 
-Finally, **DPO Refinement** can be applied to individual LoRA adapters or their compositions using Direct Preference Optimization with our custom reward model. This approach maintains the modularity while improving quality.
+Finally, **Mixed-Precision Training Strategy** optimizes memory usage: Gemma (INT4 weights + BF16 activations, frozen), Audio Encoder (BF16, frozen), MLP Projector (FP32, trainable), ensuring training stability while maximizing efficiency.
 
 ### 1.4. Implementation Timeline
 
 **Duration:** Adjusted for rapid development (target ~2-3 weeks intensive work)
 
-#### Week 1: Parallel Independent LoRA Training
+### 1.4. Implementation Timeline
 
-The first week focuses on training three independent LoRA adapters in parallel, since they don't depend on each other in the new modular architecture.
+**Duration:** Adjusted for rapid development (target ~2-3 weeks intensive work)
 
-**Persona LoRA Training (Days 1-3):**
-We begin with environment setup and acquiring the Gemma 3 4B base model. Days 1-2 focus on preparing high-quality author corpora from Project Gutenberg and other sources, ensuring diverse writing styles in English and Russian. Day 3 involves training the Persona LoRA using rank 64 and alpha 128 parameters.
+#### Week 1: Audio MLP Projector Development & Curriculum Learning
 
-**Task-Specific LoRA Training (Days 2-5):**
-Starting Day 2, we prepare task-specific datasets (WikiText-103 for continuation, OpenAssistant for rephrasing) and train separate LoRAs for each task directly on the base model. These training sessions can run in parallel since they're independent.
+The first week focuses on implementing and training the core audio processing pipeline using curriculum learning methodology inspired by the Llama-AVSR architecture.
 
-**Audio LoRA Training (Days 4-6):**
-Audio processing setup begins Day 4, preparing multimodal datasets from LibriSpeech, Common Voice, and Russian audio corpora. The Audio LoRA trains independently on the base model to handle audio-to-text projection and command recognition.
+**MLP Projector Architecture Setup (Days 1-2):**
+We begin with environment setup and acquiring the Gemma 3 4B base model and Wav2Vec2-XLS-R-300M audio encoder. The MLP projector implements a two-layer architecture with LayerNorm for stability:
 
-**Target Outcomes:** Three independent LoRAs - `Persona_LoRA`, `Task_Continue_LoRA`, `Task_Rephrase_LoRA`, and `Audio_LoRA`
-**GPU Requirements:** 60-90 A100 GPU hours total (can run in parallel on multiple GPUs)
+**Curriculum Learning Stage 1: Basic Transcription (Days 2-4):**
+Starting with simple audio-to-text transcription using LibriSpeech and Common Voice datasets. Mixed-precision training strategy: Gemma (INT4 weights + BF16 activations, frozen), Audio Encoder (BF16, frozen), MLP Projector (FP32, trainable). Target metrics: Word Error Rate (WER) < 5%.
 
-#### Week 2: Composition Testing & DPO Refinement
+**Curriculum Learning Stage 2: Emotion Recognition (Days 4-6):**
+Expanding projector capabilities to recognize emotional content in speech using labeled emotional speech datasets (RAVDESS, SAVEE, Russian emotional speech corpora). Additional metrics: Emotion Recognition Accuracy, emotional consistency scores.
 
-Week 2 focuses on testing LoRA compositions and refining them with DPO.
+**Target Outcomes:** Trained MLP projector with transcription and emotion recognition capabilities
+**GPU Requirements:** 40-60 A100 GPU hours total (curriculum learning requires more data)
 
-**Composition Validation (Days 1-2):**
-We test different combinations of LoRAs to validate that they compose correctly:
+#### Week 2: Persona LoRA Integration & Task-Specific Training
 
-- `Base + Persona + Task_Continue` for styled text continuation
-- `Base + Persona + Audio` for voice-aware personalized responses  
-- `Base + Audio + Task_Continue` for voice-commanded writing
-- `Base + Persona + Task_Continue + Audio` for full multimodal capability
+Week 2 focuses on integrating persona adaptation with the trained audio projector and developing task-specific capabilities.
 
-**WQRM Development (Days 2-4):**
-Implement and validate our Writing Quality Reward Model using edit preference pairs and quality gradient examples.
+**Persona LoRA Development (Days 1-3):**
+Training persona adaptation LoRA on diverse author corpora from Project Gutenberg and other sources. This LoRA works on top of the base model and coordinates with the audio projector to provide personalized multimodal responses. Rank 64, alpha 128 parameters for style adaptation.
 
-**DPO Refinement (Days 4-7):**
-Apply Direct Preference Optimization to key LoRA combinations, focusing on the most important compositions like `Persona + Task` combinations.
+**Task-Specific LoRA Training (Days 3-5):**
+Building specialized LoRAs for writing tasks (continuation, rephrasing) that can work with both audio input and persona conditioning:
 
-**Target Outcomes:** Validated LoRA compositions with DPO refinement
-**GPU Requirements:** 30-50 A100 GPU hours for DPO training
+- `Base + Audio-Projector + Persona + Task_Continue` for voice-guided personalized writing
+- `Base + Audio-Projector + Task_Transcribe` for direct speech-to-text
+- `Base + Persona + Task_Continue` for text-only personalized writing
 
-#### Week 3: PersonaPlugs Runtime & Deployment
+**WQRM Development (Days 5-7):**
+Implement and validate our Writing Quality Reward Model using edit preference pairs and quality gradient examples, specifically adapted for multimodal inputs.
 
-Week 3 implements the runtime system and prepares for deployment.
+**Target Outcomes:** Integrated persona and task-specific capabilities working with audio
+**GPU Requirements:** 35-50 A100 GPU hours for LoRA training
 
-**PersonaPlugs Runtime (Days 1-4):**
-Implement dynamic LoRA loading and composition system, document indexing for persona vector generation, and real-time LoRA switching based on user context.
+#### Week 3: DPO Refinement & Deployment Optimization
 
-**Optimization & Deployment (Days 5-7):**
-Quantization (INT4) for deployment efficiency, ExecuTorch preparation, integration testing of all components, and comprehensive documentation.
+Week 3 implements DPO refinement and prepares the optimized system for deployment.
 
-**Final Deliverable:** Complete modular LLM system with dynamic LoRA composition capabilities
+**DPO Refinement with Multimodal Data (Days 1-4):**
+Apply Direct Preference Optimization to the integrated audio-persona-task compositions using our WQRM. Focus on improving quality while maintaining audio understanding and personalization capabilities.
 
-**Revised Total Estimated A100 GPU Hours:** Approximately 90-140 hours (can be parallelized across multiple GPUs for faster completion)
+**Quantization & Deployment Optimization (Days 4-7):**
+Implement production-ready quantization strategy:
+- Gemma: INT4 weights + BF16 activations (70% memory reduction)
+- Audio Encoder: BF16 (50% memory reduction)  
+- MLP Projector: FP32 (training stability)
+- ExecuTorch preparation for optimal inference
+
+**Performance Metrics & Validation:**
+- **Audio Quality:** Word Error Rate (WER), Real-Time Factor (RTF)
+- **Emotion Recognition:** Accuracy, F1-score per emotion class
+- **Text Quality:** BLEU/ROUGE scores, WQRM composite scores
+- **Personalization:** Style consistency metrics, persona vector alignment
+- **System Performance:** Memory usage, inference latency, throughput
+
+**Final Deliverable:** Complete multimodal LLM system with audio projector, persona adaptation, and optimized deployment configuration
+
+**Revised Total Estimated A100 GPU Hours:** Approximately 100-130 hours total (curriculum learning + LoRA training + DPO refinement)
 
 #### Critical Path Dependencies (Simplified)
 
@@ -121,441 +142,296 @@ This process begins with the creation of a **Foundational Persona LoRA**. This i
 
 ### 2.2. Persona-Conditioned Multimodal Architecture
 
-**Text Processing Stack:**
-
-The text processing architecture builds in layers, starting with the Google Gemma 3 4B base model that serves as our non-RLHF foundation. On top of this sits our core `Persona_Audio_LoRA`, which evolved from the `Foundational_Persona_LoRA` and gained audio capabilities during training.
-
-From this foundation emerge our specialized LoRAs—clones of the `Persona_Audio_LoRA` that have been fine-tuned and refined through DPO for specific tasks like `LoRA_Continue_DPO` and `LoRA_Rephrase_DPO`. Each specialized LoRA maintains the persona conditioning while excelling at its particular writing task.
-
-Direct Preference Optimization integration runs throughout this process, ensuring that each specialized LoRA learns to prefer high-quality outputs while maintaining the user's personal style.
-
 **Audio Processing Stack:**
 
-Audio processing begins with a pre-trained Conformer model that handles raw audio input, converting acoustic signals into audio embeddings: $[\vec{a}_1, \vec{a}_2, ..., \vec{a}_N]$ where each $\vec{a}_i \in \mathbb{R}^{d_{audio}}$.
+The audio processing architecture follows the proven Llama-AVSR methodology, starting with a frozen Wav2Vec2-XLS-R-300M encoder that converts audio waveforms into dense representations. The key innovation is our specialized MLP projector that bridges audio embeddings into Gemma's text space.
 
-These audio embeddings then pass through a projection layer—an MLP that bridges the audio space to our persona-conditioned text space, transforming each $\vec{a}_i$ into $\vec{e}_i \in \mathbb{R}^{d_{LLM}}$ that the language model can understand.
+**PersonaPlugs Processing Stack:**
 
-The key innovation here is persona integration throughout the audio understanding process. Rather than treating audio as a separate modality, our `Persona_Audio_LoRA` ensures that audio understanding is conditioned on the user's communication patterns and voice characteristics from the ground up.
+PersonaPlugs uses a similar MLP projector approach for user personalization. Document embeddings from user writing samples are generated using a high-quality embedding model (similar to RAG systems), then projected into Gemma's text space through a dedicated MLP projector trained on diverse textual data.
 
-**Unified Input Processing (at inference with a DPO-refined specialized LoRA):**
+**Dual MLP Projector Architecture:**
 
-Our system handles both text and audio input through a unified approach that always includes persona conditioning. For text input, we combine the PersonaVector with TextEmbedding and ContextEmbedding: `[PersonaVector; TextEmbedding; ContextEmbedding]`. Audio input follows the same pattern but uses ProjectedAudioEmbedding: `[PersonaVector; ProjectedAudioEmbedding; ContextEmbedding]`.
+Both projectors implement sophisticated two-layer architectures designed for stable training:
+- Input stabilization through LayerNorm
+- Expansion layer for rich representation learning
+- Smooth activation with GELU
+- Regularization through Dropout
+- Projection to target dimensionality
+- Output stabilization through LayerNorm
 
-Command detection represents a sophisticated capability where the system disambiguates between dictation and commands based on user patterns. This persona-aware disambiguation leverages the `Persona_Audio_LoRA`'s deep understanding of how each user typically interacts with the system, distinguishing between "write this down" versus "delete that paragraph" based on context and personal usage patterns.
+This architecture ensures stable gradients during training while providing sufficient capacity for complex mappings - both audio-to-text and document-embedding-to-text.
 
-### 2.3. Modular LoRA Training Pipeline and Strategy
+**Text Processing Integration:**
 
-The training strategy for "lil Pushkin" follows a **modular, independent LoRA approach**. Instead of sequential training where one LoRA builds upon another, we train separate LoRAs for different capabilities and then **compose them dynamically at runtime**. This eliminates catastrophic forgetting and provides maximum flexibility.
+The text processing builds on Google Gemma 3 4B as our non-RLHF foundation, with Persona LoRA adapters trained on top for style conditioning. The audio projector outputs are concatenated with text embeddings before being fed into Gemma:
 
-**Core Principle:** The Gemma 3 4B base model weights remain frozen. All capabilities are achieved through independent LoRA adapters that can be combined in different configurations. Each LoRA is trained directly on the base model, learning its specific capability without interference from other tasks.
-
-**LoRA Composition at Runtime:**
-```python
-# Dynamic LoRA loading and composition
-base_model = AutoModelForCausalLM.from_pretrained("google/gemma-3-4b")
-
-# Standard interactive compositions (Persona + Audio + Task):
-writing_model = PeftModel.from_pretrained(base_model, "persona_lora/")
-writing_model = PeftModel.from_pretrained(writing_model, "audio_lora/")  # Always present
-writing_model = PeftModel.from_pretrained(writing_model, "task_continue_lora/")
-
-voice_model = PeftModel.from_pretrained(base_model, "persona_lora/") 
-voice_model = PeftModel.from_pretrained(voice_model, "audio_lora/")
-voice_model = PeftModel.from_pretrained(voice_model, "task_dictation_lora/")
-
-# Pure autocomplete only (minimal composition for speed):
-autocomplete_model = PeftModel.from_pretrained(base_model, "task_autocomplete_lora/")
+```
+Audio Input → Wav2Vec2 → MLP Projector → [Audio Embeddings; Text Embeddings] → Gemma + Persona LoRA
 ```
 
-**Core Architecture Principle:** In all interactive scenarios, **Persona LoRA and Audio LoRA are always present** to ensure consistent personalization and voice capabilities. Only pure autocomplete operates with minimal composition for optimal typing performance.
+**Unified Multimodal Processing:**
 
-**Runtime Personalization with PersonaPlugs:**
-The PersonaPlugs methodology (detailed in Section 2.4) provides dynamic, user-specific conditioning at inference time. User documents are processed to create persona vectors, which are then used to condition whichever LoRA composition is active.
+Our system handles both text and audio input through a unified approach that always includes persona conditioning. For text input, we combine PersonaVector with TextEmbedding and ContextEmbedding. Audio input follows the same pattern but uses ProjectedAudioEmbedding from our MLP projector.
+
+The key advantage of this architecture is seamless integration - the MLP projector learns to map audio features into the same semantic space as text embeddings, allowing Gemma to process multimodal input naturally without architectural modifications.
+
+**Curriculum Learning Integration:**
+
+The training process follows a structured curriculum:
+1. **Basic Transcription:** MLP projector learns audio→text mapping  
+2. **Emotion Recognition:** Extended audio understanding with emotional labels
+3. **Persona Integration:** LoRA training for personalized multimodal responses
+4. **Task Specialization:** Specific capabilities (continuation, rephrasing) with audio input
+
+### 2.3. Training Pipeline Strategy
+
+The training strategy for "lil Pushkin" follows a **sequential MLP projector + LoRA approach**. We first train specialized MLP projectors to handle different input modalities, then train LoRA adapters for task-specific capabilities.
+
+**Core Principle:** The Gemma 3 4B base model weights remain frozen throughout training. Different input modalities are handled through specialized MLP projectors, while task capabilities and personalization use LoRA adapters.
+
+**Sequential Training Architecture:**
+
+**Phase 1: MLP Projector Training**
+- Audio MLP Projector: Curriculum learning from transcription to emotion recognition
+- PersonaPlugs MLP Projector: Document embeddings to LLM space projection
+
+**Phase 2: LoRA Adapter Training**  
+- Persona LoRA: Style adaptation working with PersonaPlugs projector
+- Task-Specific LoRAs: Specialized capabilities (continue, rephrase, etc.)
+
+**Phase 3: System Integration & Refinement**
+- DPO refinement across integrated components
+- End-to-end optimization and deployment preparation
+
+**Mixed-Precision Training Strategy** optimizes memory usage and training stability:
+
+- **Gemma**: INT4 weights + BF16 activations (frozen, significant memory reduction)
+- **Audio Encoder**: BF16 (frozen, memory efficient)  
+- **MLP Projectors**: FP32 (trainable, ensures gradient stability)
+- **LoRA Adapters**: FP32 (trainable, critical for quality)
+
+This quantization strategy prevents gradient issues while maximizing memory efficiency for the frozen components.
 
 ```mermaid
 graph TB
-    subgraph "Base Model"
-        G[Google Gemma 3 4B<br/>Non-RLHF Base]
+    subgraph "Base Model (Frozen)"
+        G[Google Gemma 3 4B<br/>Non-RLHF Base<br/>INT4 weights + BF16]
         style G fill:#ffebee
     end
     
-    subgraph "Independent LoRA Training"
-        P[Persona LoRA<br/>Style Adaptation]
-        T1[Task LoRA: Continue<br/>Text Continuation]
-        T2[Task LoRA: Rephrase<br/>Text Rephrasing]
-        A[Audio LoRA<br/>Voice Processing]
-        style P fill:#e8f5e8
-        style T1 fill:#e8f4f8
-        style T2 fill:#e8f4f8
-        style A fill:#f8f4e8
+    subgraph "Audio Processing Pipeline"
+        AE[Wav2Vec2-XLS-R-300M<br/>Audio Encoder<br/>BF16, Frozen]
+        AMP[Audio MLP Projector<br/>2-Layer + LayerNorm<br/>FP32, Trainable]
+        style AE fill:#e1f5fe
+        style AMP fill:#f3e5f5
     end
     
-    subgraph "Runtime Composition"
-        C1[Text Writing<br/>Base + Persona + Task]
-        C2[Voice Dictation<br/>Base + Persona + Audio]
-        C3[Multimodal<br/>Base + Persona + Task + Audio]
+    subgraph "PersonaPlugs Pipeline"
+        EE[Document Embedding Model<br/>High-Quality Embeddings<br/>Frozen]
+        PMP[PersonaPlugs MLP Projector<br/>2-Layer + LayerNorm<br/>FP32, Trainable]
+        style EE fill:#e8f5e8
+        style PMP fill:#f3e5f5
+    end
+    
+    subgraph "Training Phases"
+        P1[Phase 1: MLP Projector Training<br/>Audio: Curriculum Learning<br/>PersonaPlugs: General Projection]
+        P2[Phase 2: LoRA Training<br/>Persona + Task-Specific]
+        P3[Phase 3: DPO Refinement<br/>End-to-End Optimization]
+        style P1 fill:#fff8e1
+        style P2 fill:#f1f8e9
+        style P3 fill:#fce4ec
+    end
+    
+    subgraph "LoRA Adapters (FP32)"
+        PL[Persona LoRA<br/>Style Adaptation<br/>Rank 64, Alpha 128]
+        TL1[Continue LoRA<br/>Text Continuation]
+        TL2[Rephrase LoRA<br/>Text Rephrasing]
+        TL3[Other Task LoRAs<br/>As Needed]
+        style PL fill:#fff3e0
+        style TL1 fill:#e8f5e8
+        style TL2 fill:#e8f5e8
+        style TL3 fill:#e8f5e8
+    end
+    
+    subgraph "Runtime Compositions"
+        C1[Text Writing<br/>Base + PersonaPlugs + Persona + Task]
+        C2[Audio Transcription<br/>Base + Audio Projector]
+        C3[Personalized Audio<br/>Base + Both Projectors + All LoRAs]
+        C4[Pure Autocomplete<br/>Base + Task LoRA Only]
         style C1 fill:#f0f8ff
         style C2 fill:#f0f8ff
         style C3 fill:#f0f8ff
+        style C4 fill:#f0f8ff
     end
     
     subgraph "Quality Enhancement"
-        W[Writing Quality<br/>Reward Model]
-        D[DPO Refinement<br/>Applied to Compositions]
-        style W fill:#fff3e0
-        style D fill:#fff3e0
+        W[Writing Quality<br/>Reward Model<br/>Multimodal Metrics]
+        D[DPO Refinement<br/>Integrated Preferences]
+        style W fill:#ffeaa7
+        style D fill:#ffeaa7
     end
     
-    G --> P
-    G --> T1
-    G --> T2
-    G --> A
+    AE --> AMP
+    EE --> PMP
     
-    P --> C1
-    T1 --> C1
+    P1 --> AMP
+    P1 --> PMP
+    P2 --> PL
+    P2 --> TL1
+    P2 --> TL2
+    P2 --> TL3
     
-    P --> C2
-    A --> C2
+    AMP --> G
+    PMP --> G
+    PL --> G
+    TL1 --> G
+    TL2 --> G
+    TL3 --> G
     
-    P --> C3
-    T1 --> C3
-    A --> C3
+    G --> C1
+    G --> C2
+    G --> C3
+    G --> C4
+    
+    PMP --> C1
+    PL --> C1
+    TL1 --> C1
+    
+    AMP --> C2
+    
+    AMP --> C3
+    PMP --> C3
+    PL --> C3
+    TL1 --> C3
+    
+    TL1 --> C4
     
     W --> D
-    C1 --> D
-    C2 --> D
-    C3 --> D
+    D --> PL
+    D --> TL1
+    D --> TL2
+    D --> TL3
 ```
-
 **Pipeline Stages:**
 
-#### 2.3.1. Stage 1: Independent LoRA Training (Parallel Execution)
+#### 2.3.1. Stage 1: Audio MLP Projector Training (Curriculum Learning)
 
-**Persona LoRA Training (Pure Style Adaptation)**
+**Basic Audio Transcription Training**
 
-- **Goal:** Create a LoRA that adapts the base Gemma 3 4B model to diverse writing styles, focusing purely on stylistic patterns without task-specific behavior.
-- **Base:** Google Gemma 3 4B (frozen weights)
-- **Data:** High-quality, stylistically diverse author corpora from Project Gutenberg and other sources, ensuring English and Russian representation. Focus on tens of thousands of examples showcasing different writing styles.
-- **Process:** Train using rank 64 and alpha 128 parameters, focusing on style transfer without any task conditioning.
-- **Outcome:** `Persona_LoRA` - a pure style adaptation layer
-- **Estimated GPU Hours:** 20-30 A100 GPU hours
+- **Goal:** Train the MLP projector to map audio embeddings into Gemma's text space for basic transcription tasks.
+- **Base:** Google Gemma 3 4B (frozen) + Wav2Vec2-XLS-R-300M (frozen)
+- **Trainable Component:** Audio MLP Projector only (FP32 for gradient stability)
+- **Data:** High-quality transcription datasets from various sources and languages
+- **Metrics:** Word Error Rate (WER), Real-Time Factor (RTF), gradient stability monitoring
+- **Training Strategy:** Mixed-precision with GradScaler, projector in FP32, frozen components in BF16/INT4
 
-**Task-Specific LoRA Training (Independent Task Learning)**
+**Emotion Recognition Integration**
 
-- **Goal:** Create specialized LoRAs for individual writing tasks, each trained independently on the base model.
-- **Base:** Google Gemma 3 4B (frozen weights) - NO other LoRAs loaded
-- **Data:** Task-specific datasets ensuring EN/RU examples:
-  - **Continue:** WikiText-103 subsets, Project Gutenberg continuations
-  - **Rephrase:** OpenAssistant subsets, Dolly 15k, synthetic rephrasing pairs
-- **Process:** Train each task LoRA independently using rank 64 and alpha 128 parameters. Each LoRA learns pure task capability without style considerations.
-- **Outcome:** Independent task LoRAs (`Task_Continue_LoRA`, `Task_Rephrase_LoRA`)
-- **Estimated GPU Hours:** 20-30 A100 GPU hours per task LoRA
+- **Goal:** Extend projector capabilities to recognize and encode emotional content from speech.
+- **Base:** Previous stage + trained Audio MLP projector
+- **Data:** Emotional speech datasets with labeled emotional content
+- **Additional Metrics:** Emotion Recognition Accuracy, emotional consistency scores
+- **Training Approach:** Continued training of projector with emotional labels as additional supervision
 
-**Audio LoRA Training (Independent Audio Processing)**
+#### 2.3.2. Stage 2: PersonaPlugs MLP Projector Training
 
-- **Goal:** Create an audio processing LoRA that handles voice input and audio-to-text projection independently.
-- **Base:** Google Gemma 3 4B (frozen weights) - NO other LoRAs loaded
-- **Data:** Multimodal audio-text datasets with EN/RU content from LibriSpeech, Common Voice, Open STT, Russian audio corpora
-- **Process:** Train audio processing capabilities using rank 64 and alpha 128 parameters, focusing on audio understanding without style or task considerations.
-- **Outcome:** `Audio_LoRA` - pure audio processing capability
-- **Estimated GPU Hours:** 25-35 A100 GPU hours
+**Document Embedding Projection Training**
 
-#### 2.3.2. Stage 2: Persona-Audio LoRA Training (Audio Integration)
+- **Goal:** Train PersonaPlugs MLP projector to map document embeddings into Gemma's text space.
+- **Base:** Gemma 3 4B (frozen) + pre-trained embedding model (frozen)
+- **Trainable Component:** PersonaPlugs MLP Projector (FP32)
+- **Data:** Diverse textual datasets for general text understanding and projection
+- **Training Strategy:** Similar architecture to audio projector, optimized for text embedding inputs
+- **Target Outcomes:** Effective projection of user document embeddings for personalization
 
-* **Goal:** Augment the `Foundational_Persona_LoRA` with audio processing capabilities for EN/RU voice commands and dictation.
+#### 2.3.3. Stage 3: Persona LoRA Integration
 
-* **Base:** Gemma 3 4B + `Foundational_Persona_LoRA`.
-* **Data:** Multimodal audio-text datasets with EN/RU content. Prioritize high-quality subsets from sources like LibriSpeech (EN), Common Voice (multilingual, check RU availability/quality), VoxPopuli (multilingual), Open STT (RU), Russian Scripted Monologue Dataset (RU), People’s Speech (multilingual). Focus on curated subsets (e.g., tens of thousands of utterances) rather than full dataset sizes. These are typically available via their project websites or Hugging Face Datasets.
-* **Process:**
-  Integration involves setting up the audio processing stack, then continuing to train the LoRA with rank 64 and alpha 128 parameters using the audio data to create our multimodal capabilities.
-* **Outcome:** `Audio_Persona_LoRA`.
-* **Estimated GPU Hours:** Additional 20-40 A100 GPU hours.
+**Persona Style Adaptation Training**
 
-#### 2.3.3. Stage 3: Task-Specific LoRA Specialization (Cloning and Fine-tuning)
+- **Goal:** Train persona LoRA to work with the PersonaPlugs projector for personalized responses.
+- **Base:** Gemma 3 4B + trained PersonaPlugs MLP projector (frozen)
+- **Trainable Component:** Persona LoRA (rank 64, alpha 128) in FP32
+- **Data:** High-quality author corpora with diverse writing styles
+- **Training Approach:** LoRA training on top of base model, coordinated with PersonaPlugs projector outputs
+- **Target Outcomes:** Consistent personalization across different input types
 
-* **Goal:** Create specialized LoRAs for a *prioritized set* of 1-2 writing assistance tasks (e.g., Continue, Rephrase), building upon the `Audio_Persona_LoRA`.
+#### 2.3.4. Stage 4: Task-Specific LoRA Specialization
 
-* **Base:** Gemma 3 4B + `Audio_Persona_LoRA`.
-* **Data:** Task-specific datasets, ensuring EN/RU examples where possible.
-  * **Continue:** Subsets of WikiText-103 (EN), curated continuations from Project Gutenberg (EN/RU).
-  * **Rephrase:** Subsets of OpenAssistant (multilingual, check RU), Dolly 15k (EN). Consider generating synthetic rephrasing pairs from EN/RU texts if needed.
-  * **Story Generation (if prioritized):** Subsets of ROCStories (EN), WritingPrompts (EN). Look for or create EN/RU story datasets if this is a priority.
-  * *Focus on smaller, high-quality datasets (e.g., 10k-50k examples per task for LoRA fine-tuning).*
-* **Process:**
-  Task specialization begins by cloning the `Audio_Persona_LoRA` for each prioritized task. We then fine-tune each cloned LoRA using rank 64 and alpha 128 parameters on its specific task dataset. Throughout this process, we monitor for intruder dimension issues, though this is less likely with our smaller LoRA datasets.
-* **Outcome:** Specialized LoRAs for chosen tasks (e.g., `LoRA_Continue_Specialized`, `LoRA_Rephrase_Specialized`).
-* **Estimated GPU Hours:** 15-25 A100 GPU hours per LoRA. (e.g., 30-50 hours for two LoRAs).
+**Task Adaptation Training**
 
-#### 2.3.4. Stage 4: DPO Refinement with Custom Reward Model
+- **Goal:** Train task-specific LoRAs for different writing capabilities.
+- **Base:** Gemma 3 4B + trained projectors + Persona LoRA
+- **Trainable Components:** Task-specific LoRAs (rank 64, alpha 128) in FP32
+- **Data:** Task-specific datasets:
+  - **Continue:** Text continuation examples
+  - **Rephrase:** Rephrasing and style transfer examples
+  - **Other tasks:** As needed for specific capabilities
+- **Training Strategy:** Fine-tune task LoRAs while keeping projectors and persona LoRA frozen
+- **Target Outcomes:** Specialized capabilities that work seamlessly with both projectors and personalization
 
-* **Goal:** Enhance the quality and alignment of each chosen specialized LoRA using Direct Preference Optimization (DPO).
+#### 2.3.5. Stage 5: DPO Refinement
 
-* **Base:** Each chosen specialized LoRA + Gemma 3 4B.
-* **Process:**
-  The DPO refinement process begins with generating preference pairs using the specialized LoRA, with all outputs scored using our WQRM. We then apply diversified DPO fine-tuning using rank 64 and alpha 128 parameters through DDPO (Diversified Direct Preference Optimization).
-* **Outcome:** DPO-refined versions of the chosen LoRAs (e.g., `LoRA_Continue_DPO`, `LoRA_Rephrase_DPO`).
-* **Diversified DPO Loss Function:**
+**Quality Enhancement with Multimodal DPO**
 
-$$
-L_{DDPO} = -E[\delta_w \cdot \log \sigma(\beta \cdot (\log p_\theta(y_w|x)/p_{SFT}(y_w|x) - \log p_\theta(y_l|x)/p_{SFT}(y_l|x)))]
-$$
+- **Goal:** Apply DPO to improve quality across all system components while maintaining capabilities.
+- **Base:** Complete integrated system (Gemma + both projectors + all LoRAs)
+- **Process:** Generate preference pairs from various inputs, apply quality scoring, DPO training
+- **Data:** Preference pairs covering text, audio, and personalized content
+- **Target Outcomes:** High-quality system with preserved multimodal and personalization capabilities
 
-* **Estimated GPU Hours:** 10-20 A100 GPU hours per LoRA. (e.g., 20-40 hours for two LoRAs).
+**Training Resource Estimates:**
 
-**Revised Total Estimated GPU Hours for LoRA Training (A100):**
+- **Audio MLP Projector Training:** Curriculum learning phases require substantial compute
+- **PersonaPlugs MLP Projector Training:** Moderate compute requirements for embedding projection  
+- **Persona LoRA Integration:** Standard LoRA training resource needs
+- **Task-Specific LoRAs:** Variable depending on number of tasks implemented
+- **DPO Refinement:** Additional compute for preference optimization across all components
 
-* Foundational Persona LoRA: 15-30 A100 GPU hours
-* Persona-Audio LoRA: 20-40 A100 GPU hours
-* Task-Specific LoRAs (x1 or x2): 15-25 A100 GPU hours (for one) or 30-50 A100 GPU hours (for two)
-* DPO Refinement (x1 or x2): 10-20 A100 GPU hours (for one) or 20-40 A100 GPU hours (for two)
-* **Overall Total (for 1 specialized LoRA path):** Approximately 60-115 A100 GPU hours.
-* **Overall Total (for 2 specialized LoRAs path):** Approximately 85-160 A100 GPU hours.
-
-* *These revised estimates are more aligned with shorter, intensive development cycles on limited hardware.*
-
-#### 2.3.5. Writing Quality Reward Model (WQRM) - The Heart of Our Quality System
-
-Our Writing Quality Reward Model is what makes the magic happen. Instead of trying to hand-code what makes good writing, we let the model learn from thousands of examples of humans improving text through editing.
-
-**The Basic Idea** is simple but powerful. We collect pairs of text where version A is decent but flawed, and version B is the same text after a human editor improved it. Our WQRM learns to predict which version is better and why. Once trained, it can score any piece of text and predict how much improvement it would need.
-
-**Architecture-wise**, we use a multi-component system built around a fine-tuned DeBERTa V3 Small model. The Neural Quality Classifier is trained on those edit preference pairs where edited versions are always better than originals. The Edit Trace Analyzer learns from expert editing patterns to identify exactly which parts of text need improvement. Finally, our Composite Quality Scoring combines both learned assessments and rigid formula metrics into a single score.
-
-**How It Connects to DDPO Training**: During DDPO, we generate multiple responses to the same prompt, score them all with WQRM, then use the highest-scoring response as `y_chosen` and significantly lower-scoring ones as `y_rejected`. This creates preference pairs that teach our model to prefer outputs that WQRM considers high-quality.
-
-**How It Connects to Evaluation**: The exact same WQRM components that guide DDPO training are used for final evaluation. This ensures consistency—we're training the model to optimize for the same quality dimensions we'll later use to judge its performance.
-
-* **Integrated Quality Assessment Components:**
-
-  1. **Edit-Based Quality Learning:**
-   * **Edit Preference Pairs:** Trained on (original, edited) text pairs where edited versions represent quality improvements
-   * **Edit Pattern Recognition:** Learns to identify common quality issues: verbosity, generic phrasing, weak transitions, unclear references
-   * **Refinement Scoring:** Predicts potential for improvement and specific areas needing attention
-
-  2. **Style Consistency Metrics:**
-   * **Persona Vector Alignment:** Cosine similarity between generated text embedding and target persona vector:
-
-   $$
-   PVA = \cos(\text{embedding}(\text{generated}), \text{persona vector})
-   $$
-
-   * **N-gram Style Matching:** Overlap of distinctive n-grams with user's historical writing patterns:
-
-   $$
-   NSM = \frac{|\text{user ngrams} \cap \text{generated ngrams}|}{|\text{generated ngrams}|}
-   $$
-
-   Measures proportion of generated n-grams that match user's style patterns.
-
-   * **Type-Token Ratio (TTR) Consistency:** Vocabulary richness alignment with user's baseline:
-
-   $$
-   TTR_{cons} = 1 - \frac{|TTR_{\text{user}} - TTR_{\text{generated}}|}{TTR_{\text{user}}}
-   $$
-
-   Closer to 1 indicates better lexical complexity matching.
-
-   * **Sentence Length Distribution Similarity:** KL divergence between user and generated sentence lengths:
-
-   $$
-   SLD = -\sum_{i} P_{user}(i) \log \frac{P_{user}(i)}{P_{generated}(i)}
-   $$
-
-   Lower KL divergence indicates better stylistic matching.
-
-  3. **Anti-"AI Slop" Detection:**
-   * **Generic Phrase Penalty:** Detection and scoring penalties for overused phrases:
-
-   $$
-   GPP = \frac{1}{N} \sum_{i=1}^{N} w_i \cdot I(\text{phrase}_i \in \text{GenericDB})
-   $$
-
-   Where $I$ is indicator function, $w_i$ is penalty weight based on phrase frequency in corpus.
-
-   * **N-gram Novelty Score:** Measures text originality through n-gram frequency analysis:
-
-   $$
-   NNS = \frac{1}{K} \sum_{k=2}^{5} \frac{\text{unique }k\text{-grams}}{\text{total }k\text{-grams}}
-   $$
-
-   Where $K=4$ averages over 2-gram to 5-gram novelty. Higher scores indicate less formulaic text.
-
-   * **Compression-based Quality:** Information density measurement:
-
-   $$
-   CBQ = \frac{\text{original length}}{\text{compressed length}}
-   $$
-
-   Uses LZMA compression. Higher ratios indicate more meaningful, less redundant content.
-
-   * **Perplexity Diversity:** Measures predictability variation across text segments:
-
-   $$
-   PPL_{div} = \frac{\text{std}(\text{perplexity scores})}{\text{mean}(\text{perplexity scores})}
-   $$
-
-   Higher coefficient of variation indicates more dynamic, less formulaic writing.
-
-  4. **Coherence and Flow Metrics:**
-   * **Semantic Continuity:** Cosine similarity between adjacent sentence embeddings:
-
-   $$
-   SC = \frac{1}{n-1} \sum_{i=1}^{n-1} \cos(e_i, e_{i+1})
-   $$
-
-   Where $e_i$ are sentence embeddings. Optimal range: 0.3-0.7 (too low = incoherent, too high = repetitive).
-   
-   * **Entity Consistency:** Relationship graph validation for character/place attribute consistency:
-
-   $$
-   EC = \frac{\text{consistent relations}}{\text{total relations}}
-   $$
-
-   Measures proportion of entity attributes that remain consistent throughout text.
-   
-   * **Syntactic Complexity (Parse Tree Validity):** Average parse tree depth and branching factor:
-
-   $$
-   SYN = \alpha \cdot \frac{1}{n} \sum_{i=1}^{n} \text{depth}(T_i) + (1-\alpha) \cdot \frac{1}{n} \sum_{i=1}^{n} \text{branching}(T_i)
-   $$
-
-   Where $T_i$ are parse trees for sentences, $\alpha=0.6$ balances depth vs branching complexity.
-
-  5. **Task-Specific Quality Measures:**
-   * **Continue Task:** Narrative coherence and style preservation scoring
-   * **Rephrase Task:** Semantic similarity with meaning preservation validation
-   * **StoryGen Task:** Plot originality and character development consistency
-
-  6. **Human-like Linguistic Pattern Validation:**
-   * **Dependency Length Optimality (Ω Score):** Ensures generated text follows human-like syntactic dependency patterns rather than AI-typical structures
-   * **Syntactic Distribution Naturalness:** Validates that dependency types and constituent lengths match human writing distributions
-   * **Emotion Expression Authenticity:** Measures natural emotion distribution patterns and transitions vs AI-typical emotional flatness
-   * **Bias and Representation Balance:** Ensures natural demographic representation without AI-typical skewing patterns
-
-  7. **Creativity and Novelty Assessment:**
-   * **Lexical Creativity Scoring:** Type-to-Token Ratio and Word Norms Fraction analysis to distinguish creative word usage from conventional patterns
-   * **Semantic Novelty Detection:** Google Similarity Distance and ESA-based measurement of unconventional concept combinations
-   * **Structural Creativity Indicators:** Named entity diversity and coherence variance patterns that indicate creative vs formulaic writing
-   * **Creative vs Satirical Distinction:** Automated classification to ensure genuine creativity rather than mere unusual or satirical patterns
-
-  8. **Creative Writing Diversity Enhancement:**
-   * **Response Deviation Calculation:** Measures how each generated response differs from typical outputs for the same prompt
-   * **Quality-Diversity Balance Scoring:** Simultaneous assessment of response quality and uniqueness to promote diverse creative options
-   * **Rare High-Quality Instance Weighting:** Emphasis on uncommon but excellent creative responses during preference learning
-   * **Multi-Response Coherence:** Ensures diverse outputs maintain prompt adherence and internal consistency
-
-**Training Data for WQRM:**
-
-Our Writing Quality Reward Model learns from several types of carefully curated training data. The foundation comes from edit preference pairs—high-quality human edits that show before/after text pairs demonstrating specific improvements. These real editing decisions teach the model what constitutes meaningful enhancement.
-
-We also include quality gradient examples: texts with varying quality levels that train the model to provide nuanced scoring rather than simple binary classification. This helps the model understand that quality exists on a spectrum, not just "good" versus "bad."
-
-Finally, we systematically generate negative examples—texts that fail specific quality metrics like low TTR, high cliché density, or poor entity consistency. These counterexamples help the model recognize and penalize common quality issues.
-
-**Test-Time Quality Enhancement Pipeline:**
-
-Our quality enhancement process operates at inference time to ensure optimal output quality. The system generates 3-5 candidate responses for each input, then applies Chain-of-Thought editing to each candidate to explore potential improvements. All variants get scored using our WQRM, allowing us to select the highest-scoring output. If the quality threshold isn't met, the system can optionally perform iterative refinement until an acceptable quality level is achieved.
-
-**Composite Scoring Function:**
-
-Our WQRM combines eight distinct quality dimensions into a single comprehensive score using a weighted sum:
-
-$$
-WQRM_{Score} = \sum_{i=1}^{8} \alpha_i \cdot S_i
-$$
-
-The eight components represent different aspects of writing quality:
-
-$S_1$ captures Edit Quality through neural classification and edit trace analysis, drawing from our training on human editing patterns. $S_2$ measures Style consistency using Persona Vector Alignment, N-gram Style Matching, TTR consistency, and Sentence Length Distribution similarity.
-
-$S_3$ focuses on Anti-Slop detection, combining Generic Phrase Penalties, N-gram Novelty Scores, Compression-based Quality measures, and Perplexity Diversity. $S_4$ evaluates Coherence through Semantic Continuity, Entity Consistency, and Syntactic complexity metrics.
-
-$S_5$ represents Task-specific performance using BLEU/ROUGE scores and task-relevant coherence metrics. $S_6$ validates Linguistic Patterns including dependency length optimality and syntactic naturalness compared to human writing.
-
-$S_7$ assesses Creativity through TTR analysis, Word Norm Fractions, Google Similarity Distance, Explicit Semantic Analysis, and Named Entity scoring. Finally, $S_8$ measures Diversity through response deviation calculations and quality-diversity balance scoring.
-
-The weights $\alpha_1...\alpha_8$ are learned during WQRM training to optimize correlation with human preferences, with the constraint that $\sum_i \alpha_i = 1$ to maintain interpretable scoring.
-
-**Function in DPO:**
-
-During preference pair generation, our system generates multiple responses and scores them using this comprehensive reward model. The highest-scoring response becomes `y_chosen`, while significantly lower-scoring responses become `y_rejected`. This approach ensures that DPO training optimizes for the same quality dimensions used in evaluation, creating consistency between training objectives and assessment metrics. The model learns to prefer outputs that score well across all eight quality dimensions while maintaining the user's personal style.
-
-#### 2.3.6. Edit-Based Training and Test-Time Quality Enhancement
-
-* **Core Methodology:** Implements the AI-Slop to AI-Polish approach of using expert edit traces to train models that can both generate and refine text quality iteratively.
-
-* **Chain-of-Thought Editing Model:**
-  * **Training Data:** Expert edit traces showing specific transformations (verbose → concise, generic → specific, unclear → clear)
-  * **Structured Editing Process:**
-
-  ```text
-  Original: "The event was good and people liked it."
-  Step 1: Identify problematic span: "good and people liked it" (vague)
-  Step 2: Propose rewrite: "engaging, with attendees expressing enthusiasm"
-  Final: "The event was engaging, with attendees expressing enthusiasm."
-  ```
-
-  * **Edit Pattern Learning:** Model learns common improvement patterns: conciseness, specificity, clarity, flow enhancement
-
-* **Test-Time Quality Enhancement: How We Make Better Responses:**
-
-  Here's how we make sure the model gives you better responses when you're actually using it:
-
-  * **Multiple attempts:** Instead of just generating one response and calling it a day, we create 3-5 different versions of each response.
-  
-  * **Smart editing process:** We use a step-by-step approach to catch and fix common writing problems - things like being too wordy, unclear explanations, or awkward transitions between ideas.
-  
-  * **Choose the winner:** Our quality scoring system looks at all the versions and picks the best one to show you.
-  
-  * **The trade-off:** Yes, this takes a bit more processing time, but the improvement in quality makes it worthwhile.
-
-* **How PersonaPlugs Works with This System:**
-
-  * **Training our editor:** We teach Gemma 3 4B how to make good edits by showing it examples from great literature and creative writing. The model learns what makes writing better.
-  
-  * **Keeping your style:** The editor doesn't just improve text - it learns your personal writing style and makes sure improvements still sound like you wrote them.
-  
-  * **Task-specific editing:** Different writing tasks need different kinds of improvements. Continuing a story needs different edits than rephrasing a sentence, so we train separate editing approaches for each task.
-
-**Pipeline Stages:**
-
-#### 2.3.7. Consolidated Data Sources
-
-* **Author Corpora (for Foundational Persona LoRA):**
-  * Source: Selected literary works from Project Gutenberg (ensure diverse EN/RU representation), other high-quality author-specific text collections in English and Russian. Focus on quality and stylistic breadth over sheer volume.
-  * Purpose: Train the `Foundational_Persona_LoRA` for general stylistic adaptation.
-  * Access: Public domain, often available as plain text files. Hugging Face Datasets may also host processed versions.
-* **Multimodal Audio-Text Data (for Persona-Audio LoRA):**
-  * Concrete Datasets: Prioritize high-quality EN/RU subsets from LibriSpeech (EN), Common Voice (multilingual, verify RU quality/quantity), VoxPopuli (multilingual), Open STT (RU), Russian Scripted Monologue Dataset (RU), People’s Speech (multilingual). SIFT-50M and LLaSM-Audio-Instructions might be harder to source or less relevant for initial EN/RU focus; evaluate carefully if needed.
-  * Purpose: Train the `Persona_Audio_LoRA` for persona-conditioned audio understanding.
-  * Access: Typically via official project websites or Hugging Face Datasets. Formats include audio files (e.g., .wav, .mp3) and corresponding transcripts.
-* **Task-Specific Datasets (for Specialized LoRAs):**
-  * **Continue:** Curated subsets of WikiText-103 (EN), continuations from Project Gutenberg (EN/RU).
-  * **Rephrase:** Curated subsets of OpenAssistant (multilingual, check RU), Dolly 15k (EN). Consider generating synthetic rephrasing pairs from EN/RU texts if needed.
-  * **Story Generation (if chosen):** Curated subsets of ROCStories (EN), WritingPrompts (EN). Look for or create EN/RU story datasets if this is a priority.
-  * *General Strategy: For LoRA fine-tuning, aim for tens of thousands of high-quality examples per task, not hundreds of thousands or millions. Focus on data that closely matches the desired input/output behavior.*
-  * Purpose: Fine-tune cloned `Persona_Audio_LoRA`s for specific downstream tasks.
-  * Access: Many are on Hugging Face Datasets (e.g., WikiText-103, OpenAssistant, Dolly 15k, ROCStories).
+This training pipeline ensures stable progression from basic modality handling to complex integrated multimodal and personalized interactions.
 
 ### 2.4. PersonaPlugs: Runtime Personalization Details
 
-PersonaPlugs is the methodology for dynamically conditioning the pre-trained LoRAs (Foundational, Persona-Audio, or Task-Specific DPO-refined) at inference time to adapt to an individual user's writing style.
+PersonaPlugs is the methodology for dynamically conditioning the pre-trained LoRAs at inference time to adapt to an individual user's writing style. It uses a dedicated MLP projector to map document embeddings into Gemma's text space.
 
 **Process for Generating and Applying Persona Vectors at Runtime:**
 
 1. **User Document Indexing**: Text from user documents (.txt, .rtf, .docx, .pdf) created or opened in Killah is processed (with user consent and opt-out controls).
-2. **Paragraph Encoding**: Documents are segmented into paragraphs. Each paragraph is encoded into a dense vector embedding using a sentence transformer model (e.g., Sentence-BERT). These embeddings capture the semantic and stylistic essence of the paragraphs.
-3. **Persona Vector Generation (Dynamic)**:
-  * When the user invokes a Killah feature, relevant paragraph embeddings from their indexed documents are retrieved.
-  * An attention mechanism can be used to weigh the importance of different paragraph embeddings based on the current context or task.
-  * A weighted sum (or other aggregation method) of these paragraph embeddings forms the `PersonaVector`. This vector is a condensed representation of the user's writing style relevant to the current interaction.
-4. **LLM Conditioning at Inference**: The generated `PersonaVector` is provided as an additional input to the active LoRA-equipped Gemma 3 4B model. It's typically concatenated with other inputs (e.g., text prompt, context embeddings) to guide the LLM's generation process, ensuring the output aligns with the user's style.
 
-This runtime conditioning ensures that all interactions with "lil Pushkin" are personalized, leveraging the user's own data to tailor the model's behavior without requiring retraining of the LoRAs for each user.
+2. **Document Embedding Generation**: Documents are processed using a high-quality embedding model (similar to those used in RAG systems) to generate dense vector representations capturing semantic and stylistic content.
 
-## 3. Evaluation Metrics and Quality Assessment
+3. **Persona Vector Projection**: The document embeddings are passed through the trained PersonaPlugs MLP projector to map them into Gemma's text space, creating `PersonaVectors` that can be directly used by the model.
 
-Evaluating "lil Pushkin" is more complex than running a single benchmark. We need different types of metrics that serve different purposes in our pipeline. Let me break down what we're actually measuring and why.
+4. **Dynamic Persona Conditioning**: When the user invokes a Killah feature, relevant persona vectors from their indexed documents are retrieved and used to condition the model's responses, ensuring consistent personalization across different tasks and modalities.
+
+5. **LLM Integration**: The projected persona vectors are provided as additional input to the LoRA-equipped Gemma model, typically concatenated with other inputs to guide style and content generation.
+
+This runtime conditioning ensures that all interactions with "lil Pushkin" are personalized, leveraging the user's own data through the trained MLP projector to tailor the model's behavior without requiring retraining for each user.
+
+## 3. Enhanced Multimodal Evaluation Metrics
+
+Our evaluation framework extends traditional text quality assessment to handle audio-originated content and multimodal interactions, essential for validating the curriculum learning pipeline and audio-aware DPO training.
+
+### 3.0. Audio-Aware Metric Categories
+
+**Audio Processing Metrics** measure the quality of audio-to-text transformation and the stability of the MLP projector training:
+
+- **Word Error Rate (WER)**: Transcription accuracy against ground truth
+- **Real-Time Factor (RTF)**: Processing efficiency for real-time applications  
+- **Audio-Text Semantic Consistency**: Semantic preservation from audio to text
+- **Emotion Recognition Accuracy**: Consistency of emotional content detection
+
+**Multimodal Quality Metrics** assess how well the system maintains quality when switching between or combining modalities:
+
+- **Cross-Modal Style Consistency**: Whether personalization is maintained across text and voice input
+- **Audio-Guided Writing Quality**: How well audio input guides high-quality text generation
+- **Voice Command Recognition**: Accuracy of distinguishing dictation from commands
+
+**Gradient Stability Metrics** monitor training health in the mixed-precision setup:
+
+- **Projector Gradient Norms**: Ensuring MLP projectors train stably in FP32
+- **LoRA Gradient Health**: Monitoring for NaN or exploding gradients
+- **Memory Usage Tracking**: Validating quantization effectiveness
 
 ### 3.1. Understanding Our Three-Tier Metric System
 
