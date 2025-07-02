@@ -224,8 +224,13 @@ echo "✅ venv создан"
 
 echo "📋 Устанавливаем зависимости..."
 source "$VENV_DST/bin/activate"
-pip install --upgrade pip
-pip install -r "$PROJECT_DIR/Resources/requirements.txt"
+
+echo "🐍 Скачиваем пакеты в локальный кэш (если их нет)..."
+pip download -r "$PROJECT_DIR/Resources/requirements.txt" -d "$PROJECT_DIR/Resources/wheels"
+
+echo "💿 Устанавливаем пакеты из локального кэша..."
+pip install --no-index --find-links="$PROJECT_DIR/Resources/wheels" -r "$PROJECT_DIR/Resources/requirements.txt"
+
 deactivate
 echo "✅ Зависимости установлены"
 

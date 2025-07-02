@@ -1,6 +1,5 @@
 torch
 transformers
 accelerate
-llama-cpp-python
 librosa
 torchao
