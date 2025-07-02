@@ -454,6 +454,9 @@ class Coordinator: NSObject, NSTextViewDelegate {
                 currentCommittedText = textView.committedText()
                 return
             }
+            // 🔧 Очистка лишних отступов, если пользователь вручную удалил маркер списка
+            cleanOrphanedListIndentation(in: textView)
+
             let previousCommittedTextInCoordinator = self.currentCommittedText
             let newCommittedTextFromTextView = textView.committedText()
             
@@ -478,6 +481,39 @@ class Coordinator: NSObject, NSTextViewDelegate {
             }
             
             self.currentCommittedText = newCommittedTextFromTextView
+        }
+        
+        /// Удаляет headIndent / firstLineHeadIndent у абзацев, где маркер списка стёрт вручную
+        private func cleanOrphanedListIndentation(in textView: CustomInlineNSTextView) {
+            guard let textStorage = textView.textStorage else { return }
+            let fullText = textStorage.string as NSString
+
+            textStorage.beginEditing()
+            fullText.enumerateSubstrings(in: NSRange(location: 0, length: fullText.length), options: .byParagraphs) { _, paraRange, _, _ in
+                let paragraphString = fullText.substring(with: paraRange)
+
+                // Если строка начинается с bullet "• " или нумерацией "1. " – пропускаем
+                let bulletPattern = "^\\s*•\\s+"
+                let numberPattern = "^\\s*\\d+\\.\\s+"
+                let bulletMatch = paragraphString.range(of: bulletPattern, options: .regularExpression) != nil
+                let numberMatch = paragraphString.range(of: numberPattern, options: .regularExpression) != nil
+
+                guard !bulletMatch && !numberMatch else { return }
+
+                if let ps = textStorage.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle {
+                    if ps.textLists.isEmpty && (ps.headIndent != 0 || ps.firstLineHeadIndent != 0) {
+                        let mps = ps.mutableCopy() as! NSMutableParagraphStyle
+                        mps.headIndent = 0
+                        mps.firstLineHeadIndent = 0
+                        if mps.textLists.isEmpty && mps.headIndent == 0 && mps.firstLineHeadIndent == 0 {
+                            textStorage.removeAttribute(.paragraphStyle, range: paraRange)
+                        } else {
+                            textStorage.addAttribute(.paragraphStyle, value: mps, range: paraRange)
+                        }
+                    }
+                }
+            }
+            textStorage.endEditing()
         }
         
         private func updateTextBinding(with newText: String) {
@@ -619,20 +655,21 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         // Prepare list with tab option
         let list = NSTextList(markerFormat: marker, options: 1)
         
-        // If document is empty, apply list style to typingAttributes and return
-        if length == 0 {
+        // Determine selection range.
+        // Особый случай: курсор в самом конце документа (новый пустой абзац).
+        // Применяем стиль к typingAttributes, чтобы маркер появился сразу.
+        let selRange = textView.selectedRange
+        if selRange.length == 0 && selRange.location == length {
             let mps = NSMutableParagraphStyle()
             mps.textLists = [list]
             mps.headIndent = 24
             mps.firstLineHeadIndent = 24
             textView.typingAttributes[.paragraphStyle] = mps
-            DispatchQueue.main.async { self.parent.onSelectionChange?(); self.caretCoordinator?.updateCaretPosition(for: textView) }
-            return
-        }
-        // Determine selection range, adjust if at end-of-text
-        var selRange = textView.selectedRange
-        if selRange.length == 0 && selRange.location == length && length > 0 {
-            selRange.location = length - 1
+            DispatchQueue.main.async {
+                self.parent.onSelectionChange?()
+                self.caretCoordinator?.updateCaretPosition(for: textView)
+            }
+            return // дальнейшие изменения не требуются
         }
         
         // Compute paragraph ranges
@@ -663,15 +700,17 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
             let mps = (existingPS?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
             
             if shouldRemove {
-                // Remove marker
+                // Remove marker and indentation
                 mps.textLists.removeAll { $0.markerFormat == marker }
-                if mps.textLists.isEmpty {
+                mps.headIndent = 0
+                mps.firstLineHeadIndent = 0
+                if mps.textLists.isEmpty && mps.headIndent == 0 && mps.firstLineHeadIndent == 0 {
                     textStorage.removeAttribute(.paragraphStyle, range: pr)
                 } else {
                     textStorage.addAttribute(.paragraphStyle, value: mps, range: pr)
                 }
             } else {
-                // Add marker
+                // Add marker and set indentation
                 mps.textLists = [list]
                 mps.headIndent = 24
                 mps.firstLineHeadIndent = 24
@@ -725,8 +764,8 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         
         // 1) Находим параграфы, которые пересекаются с выделением
         let ns = tv.string as NSString
-        let sel = tv.selectedRange
-        let paraRange = ns.paragraphRange(for: sel)
+        let selRange = tv.selectedRange
+        let paraRange = ns.paragraphRange(for: selRange)
         
         // 2) Готовим новый NSMutableParagraphStyle
         let currentPS = (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?

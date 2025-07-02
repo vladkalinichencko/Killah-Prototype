@@ -62,17 +62,42 @@ class ModelManager: NSObject, ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             var missingFiles: [ModelFile] = []
             for model in self.allModels {
-                let localPath = self.getModelPath(for: model.name)
-                if localPath == nil {
-                    // Special handling for zipped directories
-                    if model.name.hasSuffix(".zip") {
-                        let dirName = model.name.replacingOccurrences(of: ".zip", with: "")
-                        if self.getModelPath(for: dirName) == nil {
+                let localZipPath = self.getModelPath(for: model.name) // path if zip file exists
+
+                // --- Обработка zip-моделей ---
+                if model.name.hasSuffix(".zip") {
+                    let dirName = model.name.replacingOccurrences(of: ".zip", with: "")
+                    let extractedDirPath = self.getModelPath(for: dirName)
+
+                    // 1) Каталог уже есть → модель OK
+                    if extractedDirPath != nil { continue }
+
+                    // 2) Каталога нет, но zip есть → пытаемся распаковать
+                    if let zipPath = localZipPath {
+                        do {
+                            let zipURL = URL(fileURLWithPath: zipPath)
+                            try self.unzip(file: zipURL)
+                            try FileManager.default.removeItem(atPath: zipPath)
+                            // Проверяем ещё раз
+                            if self.getModelPath(for: dirName) != nil {
+                                continue // успешно распаковали
+                            } else {
+                                missingFiles.append(model) // что-то пошло не так
+                            }
+                        } catch {
+                            print("⚠️ Failed to unzip \(model.name): \(error.localizedDescription)")
                             missingFiles.append(model)
                         }
                     } else {
+                        // 3) Ни каталога, ни zip-файла → нужно скачать
                         missingFiles.append(model)
                     }
+                    continue // переходим к следующей модели
+                }
+
+                // --- Обычные (не zip) файлы ---
+                if localZipPath == nil { // file missing
+                    missingFiles.append(model)
                 }
             }
             
@@ -153,9 +178,16 @@ extension ModelManager: URLSessionDownloadDelegate {
             try fileManager.moveItem(at: location, to: destinationURL)
             
             if destinationURL.pathExtension == "zip" {
-                // Adjust unzipping logic if needed, as we are downloading raw files now.
-                // try unzip(file: destinationURL)
-                // try fileManager.removeItem(at: destinationURL) 
+                // Распаковываем архив и удаляем исходный .zip
+                do {
+                    try unzip(file: destinationURL)
+                    try fileManager.removeItem(at: destinationURL)
+                } catch {
+                    DispatchQueue.main.async {
+                        self.status = .error("Failed to unzip model: \(error.localizedDescription)")
+                    }
+                    return
+                }
             }
         } catch {
             DispatchQueue.main.async {

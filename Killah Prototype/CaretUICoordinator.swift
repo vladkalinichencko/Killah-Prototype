@@ -117,15 +117,9 @@ class CaretUICoordinator: ObservableObject {
                 // Конвертируем прямоугольник из локальных координат textView в координаты contentView окна
                 let rectInContentView = textView.convert(localRect, to: contentView)
 
-                // Система координат contentView (AppKit) имеет начало в левом нижнем углу.
-                // Система координат SwiftUI ZStack имеет начало в левом верхнем углу.
-                // Нам нужно перевернуть Y.
-                _ = contentView.frame.height
-                
-                // Рассчитываем ЦЕНТР каретки для модификатора .position()
                 let centerX = rectInContentView.origin.x + (rectInContentView.width / 2)
-                // In SwiftUI, origin is top-left but we can use direct y coordinate for ZStack positioning
-                let centerY = rectInContentView.origin.y + (rectInContentView.height / 2)
+                let verticalFineTune: CGFloat = 6
+                let centerY = rectInContentView.origin.y - rectInContentView.height + verticalFineTune
 
                 finalCaretPos = CGPoint(x: centerX, y: centerY)
                 finalCaretHeight = rectInContentView.height

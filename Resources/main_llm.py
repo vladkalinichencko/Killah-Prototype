@@ -19,14 +19,27 @@ class LLM:
             return True
         try:
             print(f"Loading tokenizer and model from: {self.model_dir}", file=sys.stderr, flush=True)
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir, local_files_only=True)
-            device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_dir,
-                torch_dtype=torch.bfloat16,
-                device_map=device,
-                local_files_only=True
-            )
+            try:
+                # Пытаемся загрузить модель из локального каталога
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir, local_files_only=True)
+                device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_dir,
+                    torch_dtype=torch.bfloat16,
+                    device_map=device,
+                    local_files_only=True
+                )
+            except (EnvironmentError, OSError):
+                # Если локальная загрузка не удалась, пробуем скачать из Hugging Face
+                print("Local model not found, downloading from Hugging Face…", file=sys.stderr, flush=True)
+                hf_id = "poinka/gemma-3-4b-pt-q8bits"
+                self.tokenizer = AutoTokenizer.from_pretrained(hf_id)
+                device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    hf_id,
+                    torch_dtype=torch.bfloat16,
+                    device_map=device,
+                )
             print("Model and tokenizer loaded successfully", file=sys.stderr, flush=True)
             return True
         except Exception as e:

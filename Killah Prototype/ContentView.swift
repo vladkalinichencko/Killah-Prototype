@@ -71,12 +71,15 @@ struct ContentView: View {
             editorView
         }
         .onAppear {
-            modelManager.verifyModels() // Проверяем наличие моделей
             updateToolbarStates()
             if modelManager.status == .ready {
                 llmEngine.startEngine(for: "autocomplete")
                 llmEngine.startEngine(for: "audio")
             }
+        }
+        .task {
+            // Проверяем наличие моделей вне фазы построения вью, чтобы избежать предупреждения SwiftUI
+            modelManager.verifyModels()
         }
         .onChange(of: modelManager.status) { _, newStatus in
             switch newStatus {
@@ -147,6 +150,8 @@ struct ContentView: View {
                 SmartCaretView(coordinator: coordinator)
                     .position(x: coordinator.caretPositionInWindow.x,
                               y: coordinator.caretPositionInWindow.y)
+                    .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
+                               value: coordinator.caretPositionInWindow)
                 
                 // Only show the AI-related overlays when models are ready
                 if modelManager.status == .ready {
@@ -158,8 +163,9 @@ struct ContentView: View {
     
     @ViewBuilder
     private func caretOverlays(coordinator: CaretUICoordinator) -> some View {
-        let verticalAdjustment: CGFloat = 5
-        let baseY = coordinator.caretPositionInWindow.y - coordinator.caretSize.height - verticalAdjustment
+        let verticalAdjustment: CGFloat = 5 
+        let caretTopY = coordinator.caretPositionInWindow.y - (coordinator.caretSize.height / 2)        
+        let baseY = caretTopY - verticalAdjustment
         let baseX = coordinator.caretPositionInWindow.x - 5
         
         ZStack {
@@ -180,12 +186,12 @@ struct ContentView: View {
             
             CaretPauseButton(coordinator: coordinator)
                 .position(x: coordinator.caretPositionInWindow.x,
-                          y: baseY - coordinator.caretButtonPadding)
+                          y: baseY - coordinator.caretButtonPadding - 15) // Скорректировано
                 .zIndex(2)
             
             CaretStopButton(coordinator: coordinator)
                 .position(x: coordinator.caretPositionInWindow.x,
-                          y: baseY + coordinator.caretButtonPadding + 15)
+                          y: baseY + coordinator.caretButtonPadding) // Скорректировано
                 .zIndex(2)
             
             AudioWaveformView(coordinator: coordinator)
