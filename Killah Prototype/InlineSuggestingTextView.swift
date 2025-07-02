@@ -4,6 +4,7 @@ import AppKit
 import QuartzCore
 
 struct InlineSuggestingTextView: NSViewRepresentable {
+    @EnvironmentObject var themeManager: ThemeManager
     @Binding var text: String
     @ObservedObject var llmEngine: LLMEngine
     @ObservedObject var audioEngine: AudioEngine
@@ -94,7 +95,7 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? CustomInlineNSTextView else { return }
         // Ensure system caret remains hidden
         textView.insertionPointColor = .clear
-    
+
         if textView.committedText() != text && !context.coordinator.isInternallyUpdatingTextBinding {
             textView.clearGhostText()
             llmEngine.abortSuggestion(for: "autocomplete")
@@ -164,7 +165,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
             case .attribute(let key, let value):
                 return attributeActive( in: range, key: key, value: value )
             case .paragraphList(let marker):
-                return paragraphListActive(in: range, markerFormat: marker)
+                return isParagraphList(at: range.location, format: marker)
             }
         }
 
@@ -230,19 +231,36 @@ class Coordinator: NSObject, NSTextViewDelegate {
             return checkParagraph(paraRange)
         }
 
+        private func isParagraphList(at location: Int, format: NSTextList.MarkerFormat) -> Bool {
+            guard let textView = managedTextView, let textStorage = textView.textStorage else { return false }
+            let length = textStorage.length
+            
+            if length == 0 {
+                return false
+            }
+            
+            let locationToCheck = max(0, min(location, length - 1))
+            
+            let paraRange = (textStorage.string as NSString).paragraphRange(for: NSRange(location: locationToCheck, length: 0))
+            
+            guard let paragraphStyle = textStorage.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle else {
+                return false
+            }
+            
+            return paragraphStyle.textLists.contains { $0.markerFormat == format }
+        }
 
         func isBulletListActive() -> Bool {
-            // if managedTextView is nil, fall back to empty range (0,0)
-            let range = managedTextView?.selectedRange ?? NSRange(location: 0, length: 0)
-            return paragraphListActive(in: range, markerFormat: .disc)
+            guard let textView = managedTextView else { return false }
+            return isParagraphList(at: textView.selectedRange.location, format: .disc)
         }
 
         func isNumberedListActive() -> Bool {
-            let range = managedTextView?.selectedRange ?? NSRange(location: 0, length: 0)
-            return paragraphListActive(in: range, markerFormat: .decimal)
+            guard let textView = managedTextView else { return false }
+            return isParagraphList(at: textView.selectedRange.location, format: .decimal)
         }
 
-        // MARK: – Проверка шрифтовых traits (bold/italic)Add commentMore actions
+        // MARK: – Проверка шрифтовых traits (bold/italic)
         private func fontTraitActive(in range: NSRange,
                                      trait: NSFontDescriptor.SymbolicTraits) -> Bool {
             guard let textView = managedTextView else { return false }
@@ -387,8 +405,15 @@ class Coordinator: NSObject, NSTextViewDelegate {
                 llmEngine.abortSuggestion(for: "autocomplete")
                 return
             }
-            print("✨ requestTextCompletion: sending prompt length \(currentPromptForLLM.count)")
             
+            // Запускаем запрос только если движок реально работает
+            guard llmEngine.getRunnerState(for: "autocomplete") == .running else {
+                print("💤 LLM engine not running, skip completion request")
+                return
+            }
+
+            print("✨ requestTextCompletion: sending prompt length \(currentPromptForLLM.count)")
+
             if textView.ghostText() != nil {
                 textView.clearGhostText()
             }
@@ -524,6 +549,8 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         // 4) Обновляем тулбар сразу после клика
         DispatchQueue.main.async { [weak self] in
             self?.parent.onSelectionChange?()
+            self?.caretCoordinator?.updateCaretPosition(for: textView)
+            textView.setNeedsDisplay(textView.bounds)
         }
     }
 
@@ -555,6 +582,8 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
 
         DispatchQueue.main.async { [weak self] in
             self?.parent.onSelectionChange?()
+            self?.caretCoordinator?.updateCaretPosition(for: textView)
+            textView.setNeedsDisplay(textView.bounds)
         }
     }
 
@@ -585,149 +614,93 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
     
     func toggleParagraphList(marker: NSTextList.MarkerFormat) {
         guard let textView = managedTextView, let textStorage = textView.textStorage else { return }
-
-        let selectedRange = textView.selectedRange
-        let text = textView.string as NSString
-
-        let createAndApplyParagraphStyle = { (prefix: String) -> NSParagraphStyle in
-            let baseStyle = (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            
-            let prefixWidth = (prefix as NSString).size(withAttributes: textView.typingAttributes).width
-            
-            baseStyle.headIndent = prefixWidth
-            baseStyle.firstLineHeadIndent = 0
-            
-            let tabStop = NSTextTab(textAlignment: .left, location: prefixWidth, options: [:])
-            baseStyle.tabStops = [tabStop]
-            
-            return baseStyle
-        }
-
-        // Handle case where text view is completely empty
-        if text.length == 0 {
-            let prefix = (marker == .disc) ? "• " : "1. "
-            let attributes = textView.typingAttributes
-            let attributedPrefix = NSAttributedString(string: prefix, attributes: attributes)
-            
-            textStorage.beginEditing()
-            textStorage.insert(attributedPrefix, at: 0)
-            textStorage.addAttribute(.paragraphStyle, value: createAndApplyParagraphStyle(prefix), range: NSRange(location: 0, length: attributedPrefix.length))
-            textStorage.endEditing()
-            
-            updateTextBinding(with: textView.string)
-            DispatchQueue.main.async { self.parent.onSelectionChange?() }
+        let fullText = textStorage.string as NSString
+        let length = fullText.length
+        // Prepare list with tab option
+        let list = NSTextList(markerFormat: marker, options: 1)
+        
+        // If document is empty, apply list style to typingAttributes and return
+        if length == 0 {
+            let mps = NSMutableParagraphStyle()
+            mps.textLists = [list]
+            mps.headIndent = 24
+            mps.firstLineHeadIndent = 24
+            textView.typingAttributes[.paragraphStyle] = mps
+            DispatchQueue.main.async { self.parent.onSelectionChange?(); self.caretCoordinator?.updateCaretPosition(for: textView) }
             return
         }
-        
-        let rangeToFormat = text.paragraphRange(for: selectedRange)
-        
-        let isBulletActive = isBulletListActive()
-        let isNumberedActive = isNumberedListActive()
-        let shouldRemove = (marker == .disc && isBulletActive) || (marker == .decimal && isNumberedActive)
-
-        var paragraphRanges: [NSRange] = []
-        text.enumerateSubstrings(in: rangeToFormat, options: .byParagraphs) { _, subRange, _, _ in
-            // Include the paragraph even if it's empty, as long as it's part of the selection
-            paragraphRanges.append(subRange)
+        // Determine selection range, adjust if at end-of-text
+        var selRange = textView.selectedRange
+        if selRange.length == 0 && selRange.location == length && length > 0 {
+            selRange.location = length - 1
         }
-
-        // If cursor is at an empty paragraph at the very end (enumeration returns nothing)
-        if paragraphRanges.isEmpty {
-            paragraphRanges.append(NSRange(location: selectedRange.location, length: 0))
+        
+        // Compute paragraph ranges
+        var paragraphRanges: [NSRange]
+        if selRange.length > 0 {
+            paragraphRanges = []
+            fullText.enumerateSubstrings(in: selRange, options: .byParagraphs) { _, subRange, _, _ in
+                paragraphRanges.append(subRange)
+            }
+        } else {
+            paragraphRanges = [fullText.paragraphRange(for: selRange)]
         }
-
+        
+        // Determine if we should remove existing list, only if first paragraph index is valid
+        var shouldRemove = false
+        if let first = paragraphRanges.first, first.location < length {
+            if let ps = textStorage.attribute(.paragraphStyle, at: first.location, effectiveRange: nil) as? NSParagraphStyle {
+                shouldRemove = ps.textLists.contains { $0.markerFormat == marker }
+            }
+        }
+        
         textStorage.beginEditing()
-        
-        if shouldRemove {
-            let pattern = (marker == .disc) ? #"^\s*•\s+"# : #"^\s*\d+\.\s+"#
-            for range in paragraphRanges.reversed() {
-                let paragraphText = text.substring(with: range)
-                if let match = paragraphText.range(of: pattern, options: .regularExpression) {
-                    let absoluteRange = NSRange(location: range.location + match.lowerBound.utf16Offset(in: paragraphText),
-                                                length: match.upperBound.utf16Offset(in: paragraphText) - match.lowerBound.utf16Offset(in: paragraphText))
-                    textStorage.replaceCharacters(in: absoluteRange, with: "")
-                    
-                    if let style = textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
-                       let mutableStyle = style.mutableCopy() as? NSMutableParagraphStyle {
-                        mutableStyle.headIndent = 0
-                        mutableStyle.firstLineHeadIndent = 0
-                        mutableStyle.tabStops = []
-                        textStorage.addAttribute(.paragraphStyle, value: mutableStyle, range: range)
-                    }
-                }
-            }
-        } else { // Add/change formatting
-            // In reverse order to not invalidate ranges
-            for range in paragraphRanges.reversed() {
-                // First, strip any other list type to avoid mixing formats
-                let bulletPattern = #"^\s*•\s+"#
-                let numberPattern = #"^\s*\d+\.\s+"#
-                let paragraphText = (textStorage.string as NSString).substring(with: range)
-                
-                if let match = paragraphText.range(of: numberPattern, options: .regularExpression) {
-                     let absoluteRange = NSRange(location: range.location + match.lowerBound.utf16Offset(in: paragraphText),
-                                                 length: match.upperBound.utf16Offset(in: paragraphText) - match.lowerBound.utf16Offset(in: paragraphText))
-                     textStorage.replaceCharacters(in: absoluteRange, with: "")
-                }
-                if let match = paragraphText.range(of: bulletPattern, options: .regularExpression) {
-                    let absoluteRange = NSRange(location: range.location + match.lowerBound.utf16Offset(in: paragraphText),
-                                                length: match.upperBound.utf16Offset(in: paragraphText) - match.lowerBound.utf16Offset(in: paragraphText))
-                    textStorage.replaceCharacters(in: absoluteRange, with: "")
-                }
-
-                // Add the new prefix
-                let prefix = (marker == .disc) ? "• " : "1. "
-                let attributes: [NSAttributedString.Key: Any]
-                if range.location < textStorage.length {
-                    attributes = textStorage.attributes(at: range.location, effectiveRange: nil)
+        for p in paragraphRanges {
+            let pr = fullText.paragraphRange(for: p)
+            // Skip entirely out-of-bounds paragraphs (e.g., trailing empty with no newline)
+            guard pr.location < textStorage.length else { continue }
+            let existingPS = textStorage.attribute(.paragraphStyle, at: pr.location, effectiveRange: nil) as? NSParagraphStyle
+            let mps = (existingPS?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            
+            if shouldRemove {
+                // Remove marker
+                mps.textLists.removeAll { $0.markerFormat == marker }
+                if mps.textLists.isEmpty {
+                    textStorage.removeAttribute(.paragraphStyle, range: pr)
                 } else {
-                    attributes = textView.typingAttributes
+                    textStorage.addAttribute(.paragraphStyle, value: mps, range: pr)
                 }
-                let attributedPrefix = NSAttributedString(string: prefix, attributes: attributes)
-                textStorage.insert(attributedPrefix, at: range.location)
-                
-                let paragraphStyle = createAndApplyParagraphStyle(prefix)
-                let fullParagraphRange = NSRange(location: range.location, length: attributedPrefix.length + (textStorage.string as NSString).substring(with: range).utf16.count)
-                textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullParagraphRange)
+            } else {
+                // Add marker
+                mps.textLists = [list]
+                mps.headIndent = 24
+                mps.firstLineHeadIndent = 24
+                textStorage.addAttribute(.paragraphStyle, value: mps, range: pr)
             }
         }
-        
         textStorage.endEditing()
         
-        // After all edits, re-number if it's a numbered list
-        if !shouldRemove && marker == .decimal {
-            renumberList(in: rangeToFormat)
-        }
-
         updateTextBinding(with: textView.string)
-        
-        DispatchQueue.main.async { [weak self] in
-            self?.parent.onSelectionChange?()
-            self?.caretCoordinator?.updateCaretPosition(for: textView)
+        DispatchQueue.main.async {
+            self.parent.onSelectionChange?()
+            self.caretCoordinator?.updateCaretPosition(for: textView)
+            textView.setNeedsDisplay(textView.bounds)
         }
     }
     
     private func renumberList(in range: NSRange) {
         guard let textView = managedTextView, let textStorage = textView.textStorage else { return }
-        
         let text = textStorage.string as NSString
         var paragraphRanges: [NSRange] = []
-        
         let listParagraphRange = text.paragraphRange(for: range)
-        
         text.enumerateSubstrings(in: listParagraphRange, options: .byParagraphs) { _, subRange, _, _ in
-            // Include empty paragraphs in re-numbering scan
             paragraphRanges.append(subRange)
         }
-        
         textStorage.beginEditing()
-        
         var currentNumber = 1
         let numberPattern = #"^\s*(\d+)\.\s+"#
-        
         for pRange in paragraphRanges {
             let paragraphText = text.substring(with: pRange)
-            
             if let regex = try? NSRegularExpression(pattern: numberPattern) {
                 if let match = regex.firstMatch(in: paragraphText, options: [], range: NSRange(location: 0, length: paragraphText.utf16.count)) {
                     let newMarker = "\(currentNumber). "
@@ -737,7 +710,6 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
                 }
             }
         }
-        
         textStorage.endEditing()
     }
 
@@ -770,6 +742,7 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         DispatchQueue.main.async {
             self.parent.onSelectionChange?()
             self.caretCoordinator?.updateCaretPosition(for: tv)
+            tv.setNeedsDisplay(tv.bounds)
         }
     }
     
@@ -995,53 +968,28 @@ class CustomInlineNSTextView: NSTextView {
     
     override func keyDown(with event: NSEvent) {
         if event.keyCode == KeyCodes.enter {
-            let currentRange = self.selectedRange
-            let text = self.string as NSString
-            let currentLineRange = text.lineRange(for: currentRange)
-            let currentLine = text.substring(with: currentLineRange)
-            
-            let bulletPattern = #"^\s*•\s+"#
-            let numberPattern = #"^\s*(\d+)\.\s+"#
-            
-            // Handle bullet list continuation
-            if let regex = try? NSRegularExpression(pattern: bulletPattern),
-               let match = regex.firstMatch(in: currentLine, options: [], range: NSRange(location: 0, length: (currentLine as NSString).length)) {
-                let marker = (currentLine as NSString).substring(with: match.range)
-                let contentRange = NSRange(location: match.range.location + match.range.length, length: (currentLine as NSString).length - (match.range.location + match.range.length))
-                let content = (currentLine as NSString).substring(with: contentRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let ts = self.textStorage else { super.keyDown(with: event); return }
+            let caretRange = self.selectedRange
+            let paraRange = (ts.string as NSString).paragraphRange(for: caretRange)
 
-                if content.isEmpty {
-                    // Empty line with bullet, so break out of list
-                    self.textStorage?.replaceCharacters(in: currentLineRange, with: "")
-                    setSelectedRange(NSRange(location: currentLineRange.location, length: 0))
-                } else {
-                    // Continue list
-                    insertText("\n" + marker, replacementRange: self.selectedRange)
-                }
-                return
-            }
-            
-            // Handle numbered list continuation
-            let nsCurrentLine = currentLine as NSString
-            if let regex = try? NSRegularExpression(pattern: numberPattern),
-               let match = regex.firstMatch(in: currentLine, options: [], range: NSRange(location: 0, length: nsCurrentLine.length)) {
-                
-                let numberRange = match.range(at: 1)
-                let currentNumberStr = nsCurrentLine.substring(with: numberRange)
-                let contentRange = NSRange(location: match.range.location + match.range.length, length: nsCurrentLine.length - (match.range.location + match.range.length))
-                let content = nsCurrentLine.substring(with: contentRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let ps = ts.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle,
+               ps.textLists.first != nil {
+                // Determine if current item is empty (ignoring whitespace & newline)
+                let paragraphText = (ts.string as NSString).substring(with: paraRange)
+                let trimmed = paragraphText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                if content.isEmpty {
-                    // Empty line with number, break out
-                    self.textStorage?.replaceCharacters(in: currentLineRange, with: "")
-                    setSelectedRange(NSRange(location: currentLineRange.location, length: 0))
+                if trimmed.isEmpty {
+                    // Break out of list: remove paragraph style for this paragraph
+                    let mStyle = ps.mutableCopy() as! NSMutableParagraphStyle
+                    mStyle.textLists = []
+                    mStyle.headIndent = 0
+                    mStyle.firstLineHeadIndent = 0
+                    ts.addAttribute(.paragraphStyle, value: mStyle, range: paraRange)
+                    // Now insert newline (default behaviour)
+                    super.keyDown(with: event)
                 } else {
-                    if let currentNumber = Int(currentNumberStr) {
-                        let nextMarker = "\(currentNumber + 1). "
-                        insertText("\n" + nextMarker, replacementRange: self.selectedRange)
-                    } else {
-                        super.keyDown(with: event) // Fallback
-                    }
+                    // Continue list – default behaviour already retains paragraph style
+                    super.keyDown(with: event)
                 }
                 return
             }
@@ -1099,41 +1047,29 @@ class CustomInlineNSTextView: NSTextView {
         notifyDelegate()
     }
     
+    // Override deleteBackward to remove entire marker when cursor is anywhere within the marker prefix, not just at its end, and re-number decimal lists
     override func deleteBackward(_ sender: Any?) {
-        let currentRange = self.selectedRange
-        
-        if currentRange.length == 0 && currentRange.location > 0 {
-            let text = self.string as NSString
-            let lineRange = text.lineRange(for: NSRange(location: currentRange.location, length: 0))
-            let line = text.substring(with: lineRange)
-
-            let bulletPattern = #"^\s*•\s+"#
-            let numberPattern = #"^\s*\d+\.\s+"#
-
-            var markerRange: Range<String.Index>?
-            if let bulletMatch = line.range(of: bulletPattern, options: .regularExpression) {
-                markerRange = bulletMatch
-            } else if let numberMatch = line.range(of: numberPattern, options: .regularExpression) {
-                markerRange = numberMatch
-            }
-
-            if let range = markerRange {
-                let markerLength = line.distance(from: range.lowerBound, to: range.upperBound)
-                if lineRange.location + markerLength == currentRange.location {
-                    self.textStorage?.replaceCharacters(in: NSRange(location: lineRange.location, length: markerLength), with: "")
-                    
-                    if let style = self.textStorage?.attribute(.paragraphStyle, at: currentRange.location, effectiveRange: nil) as? NSParagraphStyle,
-                       let mutableStyle = style.mutableCopy() as? NSMutableParagraphStyle {
-                        mutableStyle.headIndent = 0
-                        mutableStyle.firstLineHeadIndent = 0
-                        mutableStyle.tabStops = []
-                        self.textStorage?.addAttribute(.paragraphStyle, value: mutableStyle, range: lineRange)
-                    }
-                    return
+        // If caret is at the start of a list item, toggle list off instead of deleting text.
+        let range = selectedRange()
+        if range.length == 0,
+           let ts = self.textStorage,
+           let delegate = self.delegate as? TextFormattingDelegate {
+            let paraRange = (ts.string as NSString).paragraphRange(for: range)
+            if range.location == paraRange.location,
+               paraRange.location < ts.length,
+               let ps = ts.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle,
+               ps.textLists.first != nil {
+                if ps.textLists.first?.markerFormat == .decimal {
+                    delegate.toggleNumberedList()
+                } else {
+                    delegate.toggleBulletList()
                 }
+                // Ensure caret remains at paragraph start after style removal
+                setSelectedRange(NSRange(location: paraRange.location, length: 0))
+                self.setNeedsDisplay(self.bounds)
+                return
             }
         }
-
         super.deleteBackward(sender)
     }
     
@@ -1402,7 +1338,73 @@ class CustomInlineNSTextView: NSTextView {
 
 class CustomLayoutManager: NSLayoutManager {
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        // Draw the text first
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+
+        guard let textStorage = self.textStorage else { return }
+        let fullString = textStorage.string as NSString
+        let maxCharIndex = fullString.length
+
+        // Convert the starting glyph index to a character index
+        var charIndex = self.characterIndexForGlyph(at: glyphsToShow.location)
+
+        while charIndex < maxCharIndex {
+            let paraRange = fullString.paragraphRange(for: NSRange(location: charIndex, length: 0))
+
+            if let ps = textStorage.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle,
+               let list = ps.textLists.first {
+
+                // Determine item number by counting previous paragraphs that belong to the same list format
+                var itemNumber = 1
+                var searchLocation = paraRange.location
+                while searchLocation > 0 {
+                    let prevParaRange = fullString.paragraphRange(for: NSRange(location: searchLocation - 1, length: 0))
+                    if let prevPS = textStorage.attribute(.paragraphStyle, at: prevParaRange.location, effectiveRange: nil) as? NSParagraphStyle,
+                       prevPS.textLists.first?.markerFormat == list.markerFormat {
+                        itemNumber += 1
+                        searchLocation = prevParaRange.location
+                    } else {
+                        break
+                    }
+                }
+
+                var markerString = list.marker(forItemNumber: itemNumber)
+                if list.markerFormat == .decimal {
+                    // Ensure number ends with a dot for conventional style
+                    let trimmed = markerString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.contains(".") {
+                        markerString = "\(itemNumber)."
+                    }
+                }
+                // Remove the trailing tab that AppKit adds so it doesn't affect measurement/drawing
+                if markerString.hasSuffix("\t") {
+                    markerString.removeLast()
+                }
+
+                var charLoc = paraRange.location
+                if charLoc >= fullString.length { charLoc = max(0, fullString.length - 1) }
+                let firstGlyphIdx = min(self.numberOfGlyphs - 1, self.glyphIndexForCharacter(at: charLoc))
+                let lineRect = self.lineFragmentRect(forGlyphAt: firstGlyphIdx, effectiveRange: nil, withoutAdditionalLayout: true)
+
+                // Determine font attributes for marker rendering
+                let font = textStorage.attribute(.font, at: paraRange.location, effectiveRange: nil) as? NSFont ?? NSFont.systemFont(ofSize: 13)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor.textColor
+                ]
+                let markerSize = (markerString as NSString).size(withAttributes: attrs)
+
+                // usedRect gives the actual glyph area; its minX already includes paragraph indent.
+                let usedRect = self.lineFragmentUsedRect(forGlyphAt: firstGlyphIdx, effectiveRange: nil, withoutAdditionalLayout: true)
+
+                // Draw marker just before the used rect
+                let x = usedRect.minX + origin.x - markerSize.width - 6
+                let y = lineRect.minY + origin.y + (lineRect.height - markerSize.height) / 2
+
+                (markerString as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+            }
+            charIndex = NSMaxRange(paraRange)
+        }
     }
 }
 

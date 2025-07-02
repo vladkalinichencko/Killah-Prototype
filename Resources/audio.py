@@ -1,5 +1,13 @@
 import sys
 import os
+import time
+import select
+
+# Add the script's directory to the Python path to allow local imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
 import librosa
 import torch
 import torch.nn as nn
@@ -86,20 +94,37 @@ def process_audio_file(file_path):
         return None
 
 if __name__ == "__main__":
-    print("Entering main processing loop.", flush=True)
-    if not initialize_models():  # Проверяем успешность инициализации
-        print("Failed to initialize models, exiting.", file=sys.stderr, flush=True)
-        sys.exit(1)
+    print("Audio.py main loop started.", file=sys.stderr, flush=True)
+    
+    models_initialized = initialize_models()
+
     while True:
         try:
-            file_path = sys.stdin.readline().strip()
-            if not file_path:
-                print("Empty input received, continuing.", file=sys.stderr, flush=True)
+            if not models_initialized:
+                print("Audio models not initialized. Retrying in 5 seconds.", file=sys.stderr, flush=True)
+                time.sleep(5)
+                models_initialized = initialize_models()
                 continue
-            print(f"Received audio file path: {file_path}", file=sys.stderr, flush=True)
-            result = process_audio_file(file_path)
-            if result is None:
-                print("Processing failed", file=sys.stderr, flush=True)
-        except Exception as e:
-            print(f"Fatal error in main loop: {e}", file=sys.stderr, flush=True)
+
+            readable, _, _ = select.select([sys.stdin], [], [], 1.0)
+            if readable:
+                line = sys.stdin.readline()
+                if not line: 
+                    print("EOF received, exiting audio.py.", file=sys.stderr, flush=True)
+                    break 
+
+                file_path = line.strip()
+                if not file_path:
+                    continue
+                
+                print(f"Received audio file path: {file_path}", file=sys.stderr, flush=True)
+                result = process_audio_file(file_path)
+                if result is None:
+                    print(f"Processing failed for {file_path}", file=sys.stderr, flush=True)
+
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt received, exiting.", file=sys.stderr, flush=True)
             break
+        except Exception as e:
+            print(f"Fatal error in audio.py main loop: {e}", file=sys.stderr, flush=True)
+            time.sleep(5)

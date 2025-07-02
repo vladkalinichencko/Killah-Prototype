@@ -185,6 +185,7 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
 
     func stop() {
         print("🛑 Stopping \(scriptName). Current state: \(state)")
+        print(Thread.callStackSymbols.joined(separator: "\n"))
 
         if currentTokenCallback != nil || currentCompletionCallback != nil {
             print("ℹ️ Active task in \(scriptName). Aborting it.")

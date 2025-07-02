@@ -2,9 +2,9 @@ import Foundation
 import Combine
 import ZIPFoundation
 
-class ModelManager: ObservableObject {
+class ModelManager: NSObject, ObservableObject {
 
-    enum ModelStatus {
+    enum ModelStatus: Equatable {
         case checking
         case needsDownloading(missing: [ModelFile])
         case downloading(progress: Double)
@@ -12,7 +12,7 @@ class ModelManager: ObservableObject {
         case error(String)
     }
 
-    struct ModelFile {
+    struct ModelFile: Equatable {
         let name: String
         let remoteURL: URL
         // We can add checksums later for validation
@@ -24,13 +24,17 @@ class ModelManager: ObservableObject {
     // The list of models to be downloaded from the cloud.
     // Directories like model weights should be zipped for easier download.
     private var allModels: [ModelFile] = [
-        ModelFile(name: "wav2vec2-xls-r-300m.zip", remoteURL: URL(string: "https://huggingface.co/facebook/wav2vec2-xls-r-300m/archive/main.zip")!),
-        ModelFile(name: "gemma-3-4b-pt-q8bits.zip", remoteURL: URL(string: "https://huggingface.co/poinka/gemma-3-4b-pt-q8bits/archive/main.zip")!)
+        ModelFile(name: "wav2vec2-xls-r-300m.zip", remoteURL: URL(string: "https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/main/pytorch_model.bin")!),
+        ModelFile(name: "gemma-3-4b-pt-q8bits.zip", remoteURL: URL(string: "https://huggingface.co/poinka/gemma-3-4b-pt-q8bits/resolve/main/model.safetensors")!)
         // Any other models like MLP projectors or LoRA adapters can be added here.
         // If they are single files, they don't need to be zipped.
     ]
 
     private var downloadTasks: [URLSessionDownloadTask] = []
+    private let downloadGroup = DispatchGroup()
+    private var totalBytesToDownload: Int64 = 0
+    private var totalBytesDownloaded: Int64 = 0
+    private var downloadProgressPerTask: [URLSessionTask: Int64] = [:]
     
     private lazy var modelsDirectory: URL = {
         let fileManager = FileManager.default
@@ -55,26 +59,30 @@ class ModelManager: ObservableObject {
     }
 
     func verifyModels() {
-        var missingFiles: [ModelFile] = []
-        for model in allModels {
-            let localPath = getModelPath(for: model.name)
-            if localPath == nil {
-                // Special handling for zipped directories
-                if model.name.hasSuffix(".zip") {
-                    let dirName = model.name.replacingOccurrences(of: ".zip", with: "")
-                    if getModelPath(for: dirName) == nil {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var missingFiles: [ModelFile] = []
+            for model in self.allModels {
+                let localPath = self.getModelPath(for: model.name)
+                if localPath == nil {
+                    // Special handling for zipped directories
+                    if model.name.hasSuffix(".zip") {
+                        let dirName = model.name.replacingOccurrences(of: ".zip", with: "")
+                        if self.getModelPath(for: dirName) == nil {
+                            missingFiles.append(model)
+                        }
+                    } else {
                         missingFiles.append(model)
                     }
-                } else {
-                    missingFiles.append(model)
                 }
             }
-        }
-
-        if missingFiles.isEmpty {
-            DispatchQueue.main.async { self.status = .ready }
-        } else {
-            DispatchQueue.main.async { self.status = .needsDownloading(missing: missingFiles) }
+            
+            DispatchQueue.main.async {
+                if missingFiles.isEmpty {
+                    self.status = .ready
+                } else {
+                    self.status = .needsDownloading(missing: missingFiles)
+                }
+            }
         }
     }
 
@@ -85,19 +93,59 @@ class ModelManager: ObservableObject {
             self.status = .downloading(progress: 0)
         }
         
-        // This is a simplified download logic. For a real app, you'd want a more robust
-        // solution that handles individual progress, errors, and decompression.
+        self.totalBytesDownloaded = 0
+        self.downloadProgressPerTask = [:]
+
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        downloadTasks = missing.map { session.downloadTask(with: $0.remoteURL) }
-        downloadTasks.forEach { $0.resume() }
+        downloadTasks = missing.map { modelFile in
+            self.downloadGroup.enter()
+            let task = session.downloadTask(with: modelFile.remoteURL)
+            return task
+        }
+        
+        // Use an async task to get estimated sizes
+        Task {
+            self.totalBytesToDownload = await getTotalSize(for: missing)
+            downloadTasks.forEach { $0.resume() }
+        }
+
+        downloadGroup.notify(queue: .main) {
+            // This closure is called when all download tasks are complete
+            self.verifyModels()
+        }
+    }
+
+    private func getTotalSize(for models: [ModelFile]) async -> Int64 {
+        var totalSize: Int64 = 0
+        for model in models {
+            var request = URLRequest(url: model.remoteURL)
+            request.httpMethod = "HEAD"
+            if let (_, response) = try? await URLSession.shared.data(for: request),
+               let httpResponse = response as? HTTPURLResponse,
+               let length = httpResponse.value(forHTTPHeaderField: "Content-Length"),
+               let bytes = Int64(length) {
+                totalSize += bytes
+            }
+        }
+        return totalSize > 0 ? totalSize : 1 // Avoid division by zero
     }
 }
 
 extension ModelManager: URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let modelName = downloadTask.originalRequest?.url?.lastPathComponent else { return }
+        defer {
+            downloadGroup.leave()
+        }
 
-        let destinationURL = modelsDirectory.appendingPathComponent(modelName)
+        guard let url = downloadTask.originalRequest?.url,
+              let model = allModels.first(where: { $0.remoteURL == url }) else {
+            DispatchQueue.main.async {
+                self.status = .error("Could not identify downloaded model for URL: \(downloadTask.originalRequest?.url?.absoluteString ?? "N/A")")
+            }
+            return
+        }
+
+        let destinationURL = modelsDirectory.appendingPathComponent(model.name)
         let fileManager = FileManager.default
         
         do {
@@ -105,39 +153,42 @@ extension ModelManager: URLSessionDownloadDelegate {
             try fileManager.moveItem(at: location, to: destinationURL)
             
             if destinationURL.pathExtension == "zip" {
-                try unzip(file: destinationURL)
-                try fileManager.removeItem(at: destinationURL) // Clean up the zip file
+                // Adjust unzipping logic if needed, as we are downloading raw files now.
+                // try unzip(file: destinationURL)
+                // try fileManager.removeItem(at: destinationURL) 
             }
         } catch {
             DispatchQueue.main.async {
-                self.status = .error("Failed to move or unzip file: \(error.localizedDescription)")
+                self.status = .error("Failed to move file: \(error.localizedDescription)")
             }
             return
-        }
-
-        // Simple check: assume if one download finishes, we check all.
-        // A more robust implementation would wait for all tasks to complete.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { // Add a small delay for file system to catch up
-            self.verifyModels()
         }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        // This provides progress for a single download. To get total progress,
-        // we'd need to track the progress of all downloads.
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        
+        downloadProgressPerTask[downloadTask] = totalBytesWritten
+        
+        let currentTotalDownloaded = downloadProgressPerTask.values.reduce(0, +)
+        
+        // If we couldn't get the total size via HEAD requests, use the session's expected size.
+        // This is less accurate for multiple files but better than nothing.
+        let effectiveTotalSize = totalBytesToDownload > 0 ? totalBytesToDownload : totalBytesExpectedToWrite
+        
+        let progress = Double(currentTotalDownloaded) / Double(effectiveTotalSize)
         
         DispatchQueue.main.async {
-            // For simplicity, showing progress of the first download.
-            if self.downloadTasks.first == downloadTask {
-                self.status = .downloading(progress: progress)
-            }
+            self.status = .downloading(progress: min(progress, 1.0))
         }
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
+            defer {
+                downloadGroup.leave()
+            }
             DispatchQueue.main.async {
+                print("Download error for \(task.originalRequest?.url?.absoluteString ?? "unknown URL"): \(error.localizedDescription)")
                 self.status = .error(error.localizedDescription)
             }
         }

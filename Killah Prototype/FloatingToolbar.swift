@@ -148,6 +148,7 @@ struct ToolbarButtonStyle: ButtonStyle {
                     NSCursor.pop()
                 }
             }
+            .contentShape(Rectangle())
     }
 }
 

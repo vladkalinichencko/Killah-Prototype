@@ -47,6 +47,7 @@ struct ContentView: View {
     @Binding var document: TextDocument
     @EnvironmentObject var llmEngine: LLMEngine
     @EnvironmentObject var audioEngine: AudioEngine
+    @EnvironmentObject var modelManager: ModelManager
     @State private var debouncer = Debouncer(delay: 0.5)
     @State private var textFormattingDelegate: TextFormattingDelegate?
     
@@ -62,7 +63,47 @@ struct ContentView: View {
     @State private var isCenterAlignActive = false
     @State private var isRightAlignActive  = false
 
+    @State private var showModelDownloadSheet = false
+
     var body: some View {
+        ZStack {
+            // Main editor UI
+            editorView
+        }
+        .onAppear {
+            modelManager.verifyModels() // Проверяем наличие моделей
+            updateToolbarStates()
+            if modelManager.status == .ready {
+                llmEngine.startEngine(for: "autocomplete")
+                llmEngine.startEngine(for: "audio")
+            }
+        }
+        .onChange(of: modelManager.status) { _, newStatus in
+            switch newStatus {
+            case .ready:
+                llmEngine.startEngine(for: "autocomplete")
+                llmEngine.startEngine(for: "audio")
+            case .needsDownloading:
+                showDownloadAlert()
+                DispatchQueue.main.async {
+                    llmEngine.stopEngine()
+                }
+            default:
+                break
+            }
+        }
+        .sheet(isPresented: $showModelDownloadSheet) {
+            ModelDownloadView(
+                modelManager: modelManager,
+                missingFiles: (modelManager.status.missingFiles ?? []),
+                isDownloading: modelManager.status.isDownloading,
+                downloadProgress: modelManager.status.progress
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private var editorView: some View {
         ZStack(alignment: .top) {
             // Фон, соответствующий титлбару
             Color.clear
@@ -102,16 +143,19 @@ struct ContentView: View {
                 .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
             
             if let coordinator = caretCoordinator {
-                caretOverlays(coordinator: coordinator)
+                // Position caret at its computed center from the coordinator
+                SmartCaretView(coordinator: coordinator)
+                    .position(x: coordinator.caretPositionInWindow.x,
+                              y: coordinator.caretPositionInWindow.y)
+                
+                // Only show the AI-related overlays when models are ready
+                if modelManager.status == .ready {
+                    caretOverlays(coordinator: coordinator)
+                }
             }
         }
-        .onAppear {
-            llmEngine.startEngine(for: "autocomplete")
-            llmEngine.startEngine(for: "audio")
-            updateToolbarStates()
-        }
     }
-
+    
     @ViewBuilder
     private func caretOverlays(coordinator: CaretUICoordinator) -> some View {
         let verticalAdjustment: CGFloat = 5
@@ -126,16 +170,12 @@ struct ContentView: View {
                     .onTapGesture { }
             }
             
-            SmartCaretView(coordinator: coordinator)
-                .position(x: coordinator.caretPositionInWindow.x, y: baseY)
-                .zIndex(0)
-            
             CaretRecordButton(coordinator: coordinator)
-                .position(x: baseX - coordinator.caretButtonPadding, y: baseY)
+                .position(x: coordinator.caretPositionInWindow.x - coordinator.caretButtonPadding, y: baseY)
                 .zIndex(2)
             
             CaretPromptField(coordinator: coordinator)
-                .position(x: baseX + coordinator.caretButtonPadding + coordinator.basePromptFieldWidth / 2, y: baseY)
+                .position(x: coordinator.caretPositionInWindow.x + coordinator.caretButtonPadding + coordinator.basePromptFieldWidth / 2, y: baseY)
                 .zIndex(2)
             
             CaretPauseButton(coordinator: coordinator)
@@ -171,18 +211,49 @@ struct ContentView: View {
         isCenterAlignActive = delegate.isCenterAlignActive()
         isRightAlignActive  = delegate.isRightAlignActive()
     }
+    
+    private func showDownloadAlert() {
+        let alert = NSAlert()
+        alert.messageText = "AI Models Required"
+        alert.informativeText = "To enable AI features like autocompletion and voice commands, additional models need to be downloaded."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Not Now")
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            showModelDownloadSheet = true
+        }
+    }
 }
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        let llmEngine = LLMEngine()
+        let modelManager = ModelManager()
+        let llmEngine = LLMEngine(modelManager: modelManager)
         let audioEngine = AudioEngine(llmEngine: llmEngine)
+        
         ContentView(
-            // 1) Binding-заглушка для документа
             document: .constant(TextDocument())
         )
-        // 2) Прокидываем оба environmentObject
         .environmentObject(llmEngine)
         .environmentObject(audioEngine)
+        .environmentObject(modelManager)
+    }
+}
+
+extension ModelManager.ModelStatus {
+    var isDownloading: Bool {
+        if case .downloading = self { return true }
+        return false
+    }
+    
+    var progress: Double {
+        if case .downloading(let progress) = self { return progress }
+        return 0
+    }
+    
+    var missingFiles: [ModelManager.ModelFile]? {
+        if case .needsDownloading(let files) = self { return files }
+        return nil
     }
 }

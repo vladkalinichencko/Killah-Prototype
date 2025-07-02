@@ -12,7 +12,7 @@ class LLM:
         # Read model directory from environment variable
         base_model_path = os.environ.get('MODEL_DIR') or os.path.dirname(__file__)
         self.model_dir = os.path.join(base_model_path, "gemma-3-4b-pt-q8bits")
-
+    
     def load_model(self):
         """Loads the model and tokenizer, returning True if successful, False otherwise."""
         if self.model and self.tokenizer:

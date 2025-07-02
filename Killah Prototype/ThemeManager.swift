@@ -25,11 +25,11 @@ class ThemeManager: ObservableObject {
     func applyTheme(to window: NSWindow?) {
         switch currentTheme {
         case .light:
-            window?.effectiveAppearance = NSAppearance(named: .aqua)
+            window?.appearance = NSAppearance(named: .aqua)
         case .dark:
-            window?.effectiveAppearance = NSAppearance(named: .darkAqua)
+            window?.appearance = NSAppearance(named: .darkAqua)
         case .system:
-            window?.effectiveAppearance = nil // Resets to system appearance
+            window?.appearance = nil // Resets to system appearance
         }
     }
 } 

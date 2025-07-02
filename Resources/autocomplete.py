@@ -2,6 +2,12 @@ import torch
 import sys
 import traceback
 import os
+
+# Add the script's directory to the Python path to allow local imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
 import select
 import time
 import torch.nn as nn
@@ -10,15 +16,31 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 from typing import List, Optional
 from main_llm import get_model_loader
 
-# Get the model loader
-loader = get_model_loader()
+def initialize_models():
+    """Initializes and returns the model and tokenizer."""
+    try:
+        print("Initializing autocomplete models...", file=sys.stderr, flush=True)
+        loader = get_model_loader()
+        if not loader:
+            print("Failed to get model loader.", file=sys.stderr, flush=True)
+            return None, None
+        
+        model = loader.get_model()
+        tokenizer = loader.get_tokenizer()
 
-# Load the model and tokenizer
-model = loader.get_model() if loader else None
-tokenizer = loader.get_tokenizer() if loader else None
+        if model and tokenizer:
+            print("Autocomplete models initialized successfully.", file=sys.stderr, flush=True)
+            return model, tokenizer
+        else:
+            # The loader itself will print more specific errors.
+            return None, None
+    except Exception as e:
+        print(f"Error during autocomplete model initialization: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        return None, None
 
 # Функция для генерации автодополнений
-def generate_suggestions(prompt_text: str, persona_vector: Optional[List[float]] = None, max_suggestions: int = 1) -> List[str]:
+def generate_suggestions(model, tokenizer, prompt_text: str, persona_vector: Optional[List[float]] = None, max_suggestions: int = 1) -> List[str]:
     try:
         inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
         
@@ -47,18 +69,28 @@ def generate_suggestions(prompt_text: str, persona_vector: Optional[List[float]]
         return []
 
 # Основной цикл обработки
-if model and tokenizer:
-    print("Entering main processing loop.", file=sys.stderr, flush=True)
+if __name__ == "__main__":
+    print("Autocomplete.py main loop started.", file=sys.stderr, flush=True)
+    
+    model, tokenizer = initialize_models()
+
     current_prompt = None
     interrupted = False
 
     while True:
         try:
+            if not model or not tokenizer:
+                print("Autocomplete models not initialized. Retrying in 5 seconds.", file=sys.stderr, flush=True)
+                time.sleep(5)
+                model, tokenizer = initialize_models()
+                continue
+
             readable, _, _ = select.select([sys.stdin], [], [], 0.05)
 
             if readable:
                 new_prompt_line = sys.stdin.readline()
-                if not new_prompt_line:
+                if not new_prompt_line: # EOF
+                    print("EOF received, exiting autocomplete.py.", file=sys.stderr, flush=True)
                     break
                 
                 new_prompt = new_prompt_line.strip()
@@ -76,7 +108,7 @@ if model and tokenizer:
 
                 if prompt_to_process:
                     print("Streaming suggestions...", flush=True)
-                    suggestions = generate_suggestions(prompt_to_process)
+                    suggestions = generate_suggestions(model, tokenizer, prompt_to_process)
                     for suggestion in suggestions:
                         if interrupted:
                             break
@@ -92,15 +124,14 @@ if model and tokenizer:
                     print("END_SUGGESTIONS", flush=True)
         
         except (EOFError, KeyboardInterrupt):
+            print("KeyboardInterrupt or EOF in main loop, exiting.", file=sys.stderr, flush=True)
             break
         except Exception as e:
-            print(f"FATAL Error in main loop: {e}", file=sys.stderr, flush=True)
+            print(f"FATAL Error in autocomplete main loop: {e}", file=sys.stderr, flush=True)
             traceback.print_exc(file=sys.stderr)
-            break
+            time.sleep(5) # Avoid spamming logs on repeated failure
             
-    print("Exiting.", file=sys.stderr, flush=True)
-else:
-    print("ERROR: Model or tokenizer failed to load. Exiting.", file=sys.stderr, flush=True)
+    print("Autocomplete.py exited.", file=sys.stderr, flush=True)
 
 #################################### GGUF Model
 
