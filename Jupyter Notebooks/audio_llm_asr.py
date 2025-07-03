@@ -3,6 +3,7 @@ import json
 import zipfile
 import io
 from datetime import datetime
+import math
 
 # Suppress HuggingFace tokenizer parallelism warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -23,9 +24,10 @@ from transformers import (
     WhisperProcessor,
     WhisperModel,
     WavLMModel,
-    AutoProcessor
+    AutoProcessor,
+    BitsAndBytesConfig
 )
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 from torch.utils.data import DataLoader, Dataset
 from torch.cuda.amp import autocast, GradScaler
 from torch.nn.utils.rnn import pad_sequence
@@ -35,13 +37,32 @@ from sklearn.model_selection import train_test_split
 import jiwer
 import random
 
+# ---------------------------------------------------------------------------
+# Monkey-patch: ensure attn_bias has same dtype as query in SDPA
+# PyTorch ≥2.6 enforces dtype match; Gemma-3 int4 weights keep bias in fp32
+# so we wrap F.scaled_dot_product_attention and cast bias when needed.
+# This patch is lightweight (few nanoseconds per call) and memory-safe.
+# ---------------------------------------------------------------------------
+# --- Flexible patch (handles arbitrary kwargs, incl. 'scale') ---
+_orig_sdp = F.scaled_dot_product_attention
+
+def _sdp_cast_bias(query, key, value, *args, **kwargs):
+    if "attn_bias" in kwargs and kwargs["attn_bias"] is not None:
+        bias = kwargs["attn_bias"]
+        if bias.dtype != query.dtype:
+            kwargs["attn_bias"] = bias.to(query.dtype)
+    return _orig_sdp(query, key, value, *args, **kwargs)
+
+F.scaled_dot_product_attention = _sdp_cast_bias
+# ---------------------------------------------------------------------------
+
 # ---------------------------
 #  CONFIGURATION BLOCK
 # ---------------------------
 @dataclass
 class TrainingConfig:
     # Models & Paths
-    llm_model: str = "TinyLlama/TinyLlama-1.1B-Chat-v0.4"
+    llm_model: str = "google/gemma-3-4b-pt"
     audio_encoder_model: str = "openai/whisper-small"
     output_dir: str = "checkpoints_audio_llm"
     jsonl_path: str = "transcripts.jsonl"
@@ -51,10 +72,10 @@ class TrainingConfig:
     projector_hidden_dim: int = 2048
 
     # LoRA
-    lora_r: int = 32
-    lora_alpha: int = 16
+    lora_r: int = 64
+    lora_alpha: int = 128
     lora_dropout: float = 0.1
-    lora_target_modules: List[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
+    lora_target_modules: List[str] = field(default_factory=lambda: ["k_proj", "v_proj", "o_proj", "gate_proj", "up_proj"])
     init_lora_weights: bool = True
 
     # Discretization
@@ -62,10 +83,10 @@ class TrainingConfig:
     downsample_k: int = 5
 
     # Training parameters
-    batch_size_stage1: int = 16
+    batch_size_stage1: int = 10
     batch_size_stage2: int = 8
-    gradient_accumulation_steps: int = 2
-    epochs_stage1: int = 10
+    gradient_accumulation_steps: int = 3
+    epochs_stage1: int = 5
     epochs_stage2: int = 2
     lr_stage1: float = 2e-5
     lr_stage2: float = 1e-5
@@ -74,9 +95,9 @@ class TrainingConfig:
     
     # Checkpointing & Logging
     resume: bool = True
-    val_every_n_steps: int = 250
+    val_every_n_steps: int = 500
     save_every_n_steps: int = 50
-    log_every_n_steps: int = 10
+    log_every_n_steps: int = 5
     
     # Generation
     max_new_tokens: int = 70
@@ -84,8 +105,19 @@ class TrainingConfig:
 
     # W&B
     wandb_project: str = "audio-llm-asr"
-    wandb_name: str = "stage1-run-4"
+    wandb_name: str = "stage1-run-x1"
     wandb_api_key: str = "f2c28a0327b6e9b15d2d3a911be9d6cce58fcd39"
+
+    # Quantization
+    quantize_4bit: bool = True
+    bnb_compute_dtype: str = "bfloat16"
+    hf_token: str = ""
+
+    # Diversity loss
+    diversity_weight: float = 0.1
+
+    # Cosine similarity regularization
+    cosine_sim_weight: float = 0.1
 
 # ----------------------------
 # 1.  Audio -> LLM Bridge
@@ -376,15 +408,38 @@ def train(config: TrainingConfig, stage: int):
     os.makedirs(config.output_dir, exist_ok=True)
 
     # --- 1. Models & Tokenizer ---
-    processor = AutoProcessor.from_pretrained(config.audio_encoder_model)
-    speech_encoder = WhisperModel.from_pretrained(config.audio_encoder_model, torch_dtype=dtype).to(device).encoder
+    processor = AutoProcessor.from_pretrained(config.audio_encoder_model, token=config.hf_token)
+    speech_encoder = WhisperModel.from_pretrained(config.audio_encoder_model, torch_dtype=dtype, token=config.hf_token).to(device).encoder
     
-    tokenizer = AutoTokenizer.from_pretrained(config.llm_model, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(config.llm_model, padding_side="left", token=config.hf_token)
     # Ensure pad_token differs from eos_token to avoid immediate generation stop
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     
-    llm = AutoModelForCausalLM.from_pretrained(config.llm_model, torch_dtype=dtype, device_map={"": device})
+    # --- LLM Loading with optional 4-bit quantization ---
+    if config.quantize_4bit:
+        bnb_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=getattr(torch, config.bnb_compute_dtype),
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        llm = AutoModelForCausalLM.from_pretrained(
+            config.llm_model,
+            device_map="auto",
+            torch_dtype=getattr(torch, config.bnb_compute_dtype),
+            quantization_config=bnb_cfg,
+            trust_remote_code=True,
+            token=config.hf_token if config.hf_token else None,
+        )
+        llm.gradient_checkpointing_enable()
+        llm = prepare_model_for_kbit_training(llm)
+    else:
+        llm = AutoModelForCausalLM.from_pretrained(
+            config.llm_model,
+            torch_dtype=dtype,
+            device_map={"": device},
+        )
     # Resize token embeddings to accommodate newly added pad token
     llm.resize_token_embeddings(len(tokenizer))
 
@@ -401,10 +456,17 @@ def train(config: TrainingConfig, stage: int):
     llm.print_trainable_parameters()
 
     # --- 3. Projector & Prompt ---
+    # Determine LLM embedding dimension robustly (handles models without `config.hidden_size`)
+    try:
+        llm_hidden = llm.config.hidden_size  # works for most models
+    except AttributeError:
+        # Fallback to embedding matrix shape
+        llm_hidden = llm.get_input_embeddings().weight.shape[1]
+
     projector = Projector(
         input_dim=speech_encoder.config.hidden_size * config.downsample_k,
         hidden_dim=config.projector_hidden_dim,
-        output_dim=llm.config.hidden_size
+        output_dim=llm_hidden
     ).to(device)
 
     # Pre-embed the fixed text parts of the prompt
@@ -557,8 +619,9 @@ def train(config: TrainingConfig, stage: int):
                 codebook = llm.get_input_embeddings().weight
                 quantized_embeds, indices = discretization_fn(projected_embeds, codebook)
                 
-                # --- Cosine Sim Metric ---
-                cosine_sim_metric = F.cosine_similarity(projected_embeds, quantized_embeds.detach(), dim=-1).mean().item()
+                # --- Cosine Similarity Metric & Loss ---
+                cosine_sim = F.cosine_similarity(projected_embeds, quantized_embeds, dim=-1).mean()
+                cosine_sim_metric = cosine_sim.detach().item()
 
                 # 3. Prepare for LLM
                 target_embeds = llm.get_input_embeddings()(target_ids.clamp(min=0))
@@ -579,6 +642,18 @@ def train(config: TrainingConfig, stage: int):
 
                 outputs = model(inputs_embeds=inputs_embeds, labels=labels)
                 loss = outputs.loss / config.gradient_accumulation_steps
+
+                # --- Diversity (token-usage) regularization ---
+                hard_indices = indices[..., 0] if indices.ndim == 3 else indices  # (B, T)
+                flat_idx = hard_indices.view(-1)
+                token_counts = torch.bincount(flat_idx, minlength=codebook.size(0)).float()
+                token_probs = token_counts / (token_counts.sum() + 1e-6)
+                entropy = -(token_probs * (token_probs + 1e-9).log()).sum()
+                norm_entropy = entropy / math.log(token_probs.numel())
+                diversity_loss = (1.0 - norm_entropy)
+
+                # Diversity + Cosine similarity regularization
+                loss = loss + config.diversity_weight * diversity_loss + config.cosine_sim_weight * (1.0 - cosine_sim)
 
             if torch.isnan(loss):
                 print(f"Warning: NaN loss detected at step {global_step}. Skipping step.")
