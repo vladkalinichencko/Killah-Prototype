@@ -278,7 +278,7 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
 
                     for line in lines where !line.isEmpty {
                         DispatchQueue.main.async {
-                            if self.state == .starting && line == "Entering main processing loop." {
+                            if self.state == .starting && line == "READY" {
                                 print("✅ \(self.scriptName) is ready.")
                                 self.updateState(.running)
                                 self.isAbortedManually = false

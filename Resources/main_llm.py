@@ -19,26 +19,27 @@ class LLM:
             return True
         try:
             print(f"Loading tokenizer and model from: {self.model_dir}", file=sys.stderr, flush=True)
-            try:
-                # Пытаемся загрузить модель из локального каталога
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir, local_files_only=True)
+            hf_id = "poinka/gemma-3-4b-pt-q8bits"
+            required_files = ["tokenizer.model", "model.safetensors"]
+
+            if all(os.path.exists(os.path.join(self.model_dir, f)) for f in required_files):
+                print(f"Loading local model from {self.model_dir}", file=sys.stderr, flush=True)
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
                 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_dir,
                     torch_dtype=torch.bfloat16,
-                    device_map=device,
-                    local_files_only=True
+                    device_map=device
                 )
-            except (EnvironmentError, OSError):
-                # Если локальная загрузка не удалась, пробуем скачать из Hugging Face
-                print("Local model not found, downloading from Hugging Face…", file=sys.stderr, flush=True)
-                hf_id = "poinka/gemma-3-4b-pt-q8bits"
-                self.tokenizer = AutoTokenizer.from_pretrained(hf_id)
+            else:
+                print(f"Local model incomplete or missing at {self.model_dir}. Downloading from Hugging Face...", file=sys.stderr, flush=True)
+                self.tokenizer = AutoTokenizer.from_pretrained(hf_id, cache_dir=self.model_dir)
                 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
                 self.model = AutoModelForCausalLM.from_pretrained(
                     hf_id,
                     torch_dtype=torch.bfloat16,
                     device_map=device,
+                    cache_dir=self.model_dir
                 )
             print("Model and tokenizer loaded successfully", file=sys.stderr, flush=True)
             return True

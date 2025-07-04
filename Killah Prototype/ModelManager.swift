@@ -24,8 +24,8 @@ class ModelManager: NSObject, ObservableObject {
     // The list of models to be downloaded from the cloud.
     // Directories like model weights should be zipped for easier download.
     private var allModels: [ModelFile] = [
-        ModelFile(name: "wav2vec2-xls-r-300m.zip", remoteURL: URL(string: "https://huggingface.co/facebook/wav2vec2-xls-r-300m/resolve/main/pytorch_model.bin")!),
-        ModelFile(name: "gemma-3-4b-pt-q8bits.zip", remoteURL: URL(string: "https://huggingface.co/poinka/gemma-3-4b-pt-q8bits/resolve/main/model.safetensors")!)
+        ModelFile(name: "wav2vec2-xls-r-300m.zip", remoteURL: URL(string: "https://huggingface.co/facebook/wav2vec2-xls-r-300m/archive/main.zip")!),
+        ModelFile(name: "gemma-3-4b-pt-q8bits.zip", remoteURL: URL(string: "https://huggingface.co/poinka/gemma-3-4b-pt-q8bits/archive/main.zip")!)
         // Any other models like MLP projectors or LoRA adapters can be added here.
         // If they are single files, they don't need to be zipped.
     ]

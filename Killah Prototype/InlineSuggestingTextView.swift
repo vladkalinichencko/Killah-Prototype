@@ -1169,7 +1169,7 @@ class CustomInlineNSTextView: NSTextView {
 
         animatedGhostTextLayer = CATextLayer()
         animatedGhostTextLayer?.contentsScale = window?.backingScaleFactor ?? 2.0
-        animatedGhostTextLayer?.isHidden = true
+        //animatedGhostTextLayer?.isHidden = true
         layer?.addSublayer(animatedGhostTextLayer!)
 
         animatedGhostTextMask = CAGradientLayer()
@@ -1186,7 +1186,7 @@ class CustomInlineNSTextView: NSTextView {
               let ghostText = self.ghostText(),
               let layoutManager = self.layoutManager,
               let textContainer = self.textContainer else {
-            animatedGhostTextLayer?.isHidden = true
+            //animatedGhostTextLayer?.isHidden = true
             return
         }
 
@@ -1215,7 +1215,7 @@ class CustomInlineNSTextView: NSTextView {
         animatedGhostTextLayer?.string = attributedString
         animatedGhostTextLayer?.font = self.font
         animatedGhostTextLayer?.fontSize = self.font?.pointSize ?? 16
-        animatedGhostTextLayer?.isHidden = false
+        //animatedGhostTextLayer?.isHidden = false
         animatedGhostTextMask?.frame = animatedGhostTextLayer?.bounds ?? .zero
         
         let maskLayer = CALayer()
@@ -1256,7 +1256,7 @@ class CustomInlineNSTextView: NSTextView {
         ts.beginEditing()
         let attributes: [NSAttributedString.Key: Any] = [
             .isGhostText: true,
-            .foregroundColor: NSColor.clear, // Make original ghost text invisible
+            .foregroundColor: NSColor.gray, // Make original ghost text visible
             .font: self.font ?? NSFont.systemFont(ofSize: 16)
         ]
         

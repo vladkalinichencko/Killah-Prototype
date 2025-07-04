@@ -73,6 +73,8 @@ if __name__ == "__main__":
     print("Autocomplete.py main loop started.", file=sys.stderr, flush=True)
     
     model, tokenizer = initialize_models()
+    if model and tokenizer:
+        print("READY", flush=True)  # Вывод на stdout
 
     current_prompt = None
     interrupted = False

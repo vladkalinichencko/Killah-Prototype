@@ -47,8 +47,10 @@ def initialize_models():
         # Get model base path from environment variable, fall back to bundled resources
         base_model_path = os.environ.get('MODEL_DIR') or os.path.dirname(__file__)
         model_path = os.path.join(base_model_path, "wav2vec2-xls-r-300m")
-
-        if os.path.exists(model_path):
+        
+        # Check if critical files exist
+        required_files = ["preprocessor_config.json", "pytorch_model.bin"]
+        if all(os.path.exists(os.path.join(model_path, f)) for f in required_files):
             audio_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
             audio_encoder = AutoModel.from_pretrained(model_path).to(device)
         else:
@@ -100,7 +102,10 @@ if __name__ == "__main__":
     print("Audio.py main loop started.", file=sys.stderr, flush=True)
     
     models_initialized = initialize_models()
-
+    
+    if models_initialized:
+        print("READY", flush=True)  # Вывод на stdout
+    
     while True:
         try:
             if not models_initialized:
