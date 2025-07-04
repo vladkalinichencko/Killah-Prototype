@@ -29,8 +29,7 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 from torch.utils.data import DataLoader, Dataset
-from torch.amp import autocast
-from torch.cuda.amp import GradScaler
+from torch.cuda.amp import autocast, GradScaler
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import wandb
@@ -50,8 +49,15 @@ class TrainingConfig:
     jsonl_path: str = "transcripts.jsonl"
     zip_path: str = "LibriSpeech.zip"
 
-    # Projector
-    projector_hidden_dim: int = 2048
+    # Q-Former Projector
+    qformer_num_query_tokens: int = 64
+    qformer_num_heads: int = 8
+    qformer_num_layers: int = 4
+    qformer_hidden_dim: int = 2048
+
+    # Loss weights
+    contrastive_loss_weight: float = 1.0
+    matching_loss_weight: float = 1.0
 
     # LoRA
     lora_r: int = 64
@@ -60,21 +66,16 @@ class TrainingConfig:
     lora_target_modules: List[str] = field(default_factory=lambda: ["k_proj", "v_proj", "o_proj", "gate_proj", "up_proj"])
     init_lora_weights: bool = True
 
-    # Discretization
-    top_k: int = 10
+    # Discretization -> REMOVED
     downsample_k: int = 5
 
     # Training parameters
-    batch_size_stage1: int = 8
-    batch_size_stage2: int = 8
+    batch_size: int = 8
     gradient_accumulation_steps: int = 4
-    epochs_stage1: int = 5
-    epochs_stage2: int = 2
-    lr_stage1: float = 5e-5
-    lr_stage2: float = 1e-5
+    epochs: int = 5
+    learning_rate: float = 1e-4
     warmup_steps: int = 1000
     val_test_size: float = 0.05
-    clip_threshold: float = 5.0
     
     # Checkpointing & Logging
     resume: bool = True
@@ -87,8 +88,8 @@ class TrainingConfig:
     beam_size: int = 4
 
     # W&B
-    wandb_project: str = "audio-llm-asr"
-    wandb_name: str = "stage1-run-x3"
+    wandb_project: str = "audio-llm-qformer"
+    wandb_name: str = "qformer-run"
     wandb_api_key: str = ""
 
     # Quantization
@@ -96,29 +97,53 @@ class TrainingConfig:
     bnb_compute_dtype: str = "bfloat16"
     hf_token: str = ""
 
-    # Diversity loss
-    diversity_weight: float = 0.5
-
-    # Cosine similarity regularization
-    cosine_sim_weight: float = 0.2
-
 # ----------------------------
 # 1.  Audio -> LLM Bridge
 # ----------------------------
 
-class Projector(nn.Module):
-    """Two-layer MLP with ReLU used in the SLAM-ASR paper."""
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
+class QFormerProjector(nn.Module):
+    """
+    A Q-Former based projector.
+    It projects a sequence of audio embeddings to a fixed number of output embeddings.
+    It uses a number of learnable query embeddings that attend to the audio features.
+    """
+    def __init__(self, num_query_tokens: int, input_dim: int, output_dim: int, num_heads: int, num_layers: int, hidden_dim: int):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
+        # Learnable query tokens
+        self.query_tokens = nn.Parameter(torch.randn(1, num_query_tokens, output_dim))
+
+        # Project input audio features to the Q-Former's dimension
+        self.input_proj = nn.Linear(input_dim, output_dim)
+
+        # Transformer decoder layers that will perform cross-attention
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=output_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim,
+            dropout=0.1,
+            activation=F.gelu,
+            batch_first=True,
+            norm_first=True  # Pre-LayerNorm for stability
         )
+        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        b, t, d = x.shape
-        return self.net(x.view(b * t, d)).view(b, t, -1)
+        """
+        Forward pass of the Q-Former.
+        Args:
+            x (torch.Tensor): Input audio features of shape (B, T, D_input).
+        Returns:
+            torch.Tensor: Output embeddings of shape (B, N_query, D_output).
+        """
+        # Project audio features to the same dimension as the query tokens
+        memory = self.input_proj(x.to(self.input_proj.weight.dtype))
+
+        # Expand query tokens for the batch
+        query_tokens = self.query_tokens.expand(x.shape[0], -1, -1)
+
+        # The queries attend to the audio features (memory)
+        output = self.transformer_decoder(tgt=query_tokens, memory=memory)
+        return output
 
 def downsample_and_concat(x: torch.Tensor, k: int) -> torch.Tensor:
     """Concatenate every k consecutive frames."""
@@ -128,62 +153,6 @@ def downsample_and_concat(x: torch.Tensor, k: int) -> torch.Tensor:
     n = t // k
     x = x[:, :n * k, :].reshape(b, n, k, c)
     return x.reshape(b, n, k * c)
-
-class StraightThroughEstimator(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, z, q):
-        # In the forward pass, we use the quantized vectors q
-        return q
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # In the backward pass, we pass the gradients straight through to z
-        return grad_output, None
-
-def hard_discretization(audio_embeds, codebook):
-    # audio_embeds: (B, T, D), codebook: (V, D)
-    audio_embeds_norm = F.normalize(audio_embeds, p=2, dim=-1)
-    codebook_norm = F.normalize(codebook, p=2, dim=-1)
-    similarities = torch.einsum('btd,vd->btv', audio_embeds_norm, codebook_norm)
-    indices = similarities.argmax(dim=-1)  # (B, T)
-    quantized_hard = codebook[indices]  # (B, T, D)
-    
-    # Apply Straight-Through Estimator
-    quantized_ste = StraightThroughEstimator.apply(audio_embeds, quantized_hard)
-    return quantized_ste, indices
-
-def soft_discretization(audio_embeds, codebook, k=10):
-    # audio_embeds: (B, T, D), codebook: (V, D)
-    B, T, D = audio_embeds.shape
-    V, _ = codebook.shape
-
-    # --- Use no_grad for memory efficiency during similarity calculation ---
-    with torch.no_grad():
-        audio_embeds_norm = F.normalize(audio_embeds, p=2, dim=-1)
-        codebook_norm = F.normalize(codebook, p=2, dim=-1)
-        similarities = torch.einsum('btd,vd->btv', audio_embeds_norm, codebook_norm)
-        topk_sim, topk_indices = similarities.topk(k, dim=-1)  # (B, T, k)
-        weights = F.softmax(topk_sim, dim=-1)  # (B, T, k)
-
-    # --- Reshape for embedding_bag ---
-    # Flatten (B, T) dimensions to treat as a single batch
-    topk_indices_flat = topk_indices.view(B * T, k) # (B*T, k)
-    weights_flat = weights.view(B * T, k) # (B*T, k)
-
-    # --- Use embedding_bag for memory-efficient gradient calculation ---
-    # It computes weighted sums of embeddings without creating a huge intermediate tensor
-    quantized_flat = F.embedding_bag(
-        topk_indices_flat,  # indices to lookup
-        codebook,           # the full embedding matrix
-        per_sample_weights=weights_flat, # weights for each lookup
-        mode="sum"          # sum the weighted embeddings
-    ) # (B*T, D)
-
-    # Reshape back to original (B, T, D)
-    quantized = quantized_flat.view(B, T, D)
-
-    return quantized, topk_indices
-
 
 # ----------------------------
 # 2.  Custom Dataset
@@ -257,9 +226,16 @@ def collate_fn(batch):
 # 3.  Wrapper Model
 # ----------------------------
 class SLAMASR(nn.Module):
-    def __init__(self, llm):
+    def __init__(self, llm, atm_head_hidden_dim: int):
         super().__init__()
         self.llm = llm
+        # Audio-Text Matching Head
+        llm_hidden_size = llm.config.hidden_size
+        self.atm_head = nn.Sequential(
+            nn.Linear(llm_hidden_size, atm_head_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(atm_head_hidden_dim, 1)
+        )
 
     def forward(self, inputs_embeds: torch.Tensor, labels: torch.Tensor):
         return self.llm(inputs_embeds=inputs_embeds, labels=labels)
@@ -268,7 +244,7 @@ class SLAMASR(nn.Module):
 # 4.  Evaluation loop
 # ----------------------------
 @torch.no_grad()
-def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype, config, discretization_fn, prompt_embeds):
+def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype, config, prompt_embeds):
     model.eval()
     projector.eval()
     speech_encoder.eval()
@@ -280,7 +256,6 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
     pbar = tqdm(loader, desc="Evaluating")
     
     example_outputs = []
-    visualization_data = [] # For rich examples
 
     for batch in pbar:
         if batch is None: continue
@@ -288,26 +263,22 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
         input_values = batch['input_values'].to(device)
         target_ids = batch['target_ids'].to(device)
         
-        with autocast(device_type="cuda", dtype=dtype, enabled=torch.cuda.is_available()):
-            # 1. Get audio embeddings -> downsample -> project
+        with autocast(dtype=dtype, enabled=torch.cuda.is_available()):
+            # 1. Get audio embeddings -> downsample -> project with Q-Former
             audio_embeds_raw = speech_encoder(input_values).last_hidden_state
             audio_embeds_ds = downsample_and_concat(audio_embeds_raw, config.downsample_k)
             projected_embeds = projector(audio_embeds_ds.to(torch.float32))
-
-            # 2. Discretize
-            codebook = model.llm.get_input_embeddings().weight
-            quantized_embeds, indices = discretization_fn(projected_embeds, codebook)
             
-            # 3. Prepare input for LLM using the prompt
+            # 2. Prepare input for LLM using the prompt
             target_embeds = model.llm.get_input_embeddings()(target_ids.clamp(min=0)) # clamp to avoid -100 index
             
             batch_inputs_embeds = []
             batch_labels = []
-            for i in range(quantized_embeds.size(0)):
+            for i in range(projected_embeds.size(0)):
                 # [USER_prompt, audio, ASSISTANT_prompt, target]
                 inputs_embeds = torch.cat([
                     prompt_embeds['user'], 
-                    quantized_embeds[i], 
+                    projected_embeds[i], 
                     prompt_embeds['assistant'],
                     target_embeds[i]
                 ], dim=0)
@@ -316,7 +287,7 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
                 # Labels: ignore everything except the target
                 labels = torch.cat([
                     torch.full(prompt_embeds['user'].shape[:1], -100, device=device),
-                    torch.full(quantized_embeds[i].shape[:1], -100, device=device),
+                    torch.full(projected_embeds[i].shape[:1], -100, device=device),
                     torch.full(prompt_embeds['assistant'].shape[:1], -100, device=device),
                     target_ids[i]
                 ], dim=0)
@@ -325,31 +296,25 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
             inputs_embeds = pad_sequence(batch_inputs_embeds, batch_first=True)
             labels = pad_sequence(batch_labels, batch_first=True, padding_value=-100)
 
-            # 4. Get loss
+            # 3. Get loss
             outputs = model(inputs_embeds=inputs_embeds.to(dtype), labels=labels)
             total_loss += outputs.loss.item()
 
-            # Handle different shapes of indices from hard/soft discretization for visualization
-            if indices.ndim == 3: # soft-disc returns (B, T, k)
-                indices_for_vis = indices[:, :, 0]
-            else: # hard-disc returns (B, T)
-                indices_for_vis = indices
+        # --- Generation for WER and examples ---
+        # Prepare prompt for generation: [USER_prompt, audio, ASSISTANT_prompt]
+        generation_prompt_embeds = torch.cat([
+            prompt_embeds['user'].expand(projected_embeds.size(0), -1, -1),
+            projected_embeds,
+            prompt_embeds['assistant'].expand(projected_embeds.size(0), -1, -1)
+        ], dim=1)
 
-            # --- Generation for WER and examples ---
-            # Prepare prompt for generation: [USER_prompt, audio, ASSISTANT_prompt]
-            generation_prompt_embeds = torch.cat([
-                prompt_embeds['user'].expand(quantized_embeds.size(0), -1, -1),
-                quantized_embeds,
-                prompt_embeds['assistant'].expand(quantized_embeds.size(0), -1, -1)
-            ], dim=1)
-
-            generated_ids = model.llm.generate(
-                inputs_embeds=generation_prompt_embeds.to(dtype),
-                max_new_tokens=config.max_new_tokens,
-                num_beams=config.beam_size,
-                eos_token_id=tokenizer.eos_token_id,
-                pad_token_id=tokenizer.pad_token_id,
-            )
+        generated_ids = model.llm.generate(
+            inputs_embeds=generation_prompt_embeds.to(dtype),
+            max_new_tokens=config.max_new_tokens,
+            num_beams=config.beam_size,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id,
+        )
 
         for i in range(len(generated_ids)):
             # Decode only the newly generated tokens
@@ -367,19 +332,6 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
             # Store simple text examples
             if len(example_outputs) < 5:
                  example_outputs.append(f"\n  TARGET    : {target_text}\n  GENERATED : {generated_text}\n")
-            
-            # Store rich visualization examples
-            if len(visualization_data) < 3:
-                embed_sample = str(projected_embeds[i, :2, :5].to(torch.float32).cpu().numpy().round(2))
-                audio_as_tokens = tokenizer.decode(indices_for_vis[i], skip_special_tokens=True)
-                
-                visualization_data.append({
-                    "target": target_text,
-                    "generated": generated_text,
-                    "embed_sample": embed_sample,
-                    "audio_as_tokens": audio_as_tokens
-                })
-
 
     pbar.write("\n--- Validation Examples ---")
     for example in random.sample(example_outputs, min(len(example_outputs), 3)):
@@ -393,14 +345,14 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
     avg_loss = total_loss / len(loader)
     avg_wer = (total_wer / total_samples) * 100 if total_samples > 0 else 0
     
-    return avg_loss, avg_wer, visualization_data
+    return avg_loss, avg_wer
 
 # ----------------------------
 # 5.  Training loop
 # ----------------------------
-def train(config: TrainingConfig, stage: int):
+def train(config: TrainingConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
 
     os.makedirs(config.output_dir, exist_ok=True)
 
@@ -462,10 +414,13 @@ def train(config: TrainingConfig, stage: int):
         # Fallback to embedding matrix shape
         llm_hidden = llm.get_input_embeddings().weight.shape[1]
 
-    projector = Projector(
+    projector = QFormerProjector(
+        num_query_tokens=config.qformer_num_query_tokens,
         input_dim=speech_encoder.config.hidden_size * config.downsample_k,
-        hidden_dim=config.projector_hidden_dim,
-        output_dim=llm_hidden
+        output_dim=llm_hidden,
+        num_heads=config.qformer_num_heads,
+        num_layers=config.qformer_num_layers,
+        hidden_dim=config.qformer_hidden_dim
     ).to(device)
 
     # Pre-embed the fixed text parts of the prompt
@@ -476,26 +431,10 @@ def train(config: TrainingConfig, stage: int):
         'assistant': llm.get_input_embeddings()(assistant_prompt_tokens).squeeze(0)
     }
 
-    # --- 4. Stage-specific settings ---
-    if stage == 1:
-        epochs = config.epochs_stage1
-        lr = config.lr_stage1
-        batch_size = config.batch_size_stage1
-        discretization_fn = hard_discretization
-        llm.get_input_embeddings().weight.requires_grad_(False)
-        speech_encoder.requires_grad_(False)
-        params_to_train = list(projector.parameters()) + [p for p in llm.parameters() if p.requires_grad]
-
-    elif stage == 2:
-        epochs = config.epochs_stage2
-        lr = config.lr_stage2
-        batch_size = config.batch_size_stage2
-        discretization_fn = lambda audio_embeds, cb: soft_discretization(audio_embeds, cb, k=config.top_k)
-        llm.get_input_embeddings().weight.requires_grad_(True)
-        speech_encoder.requires_grad_(False)
-        params_to_train = list(projector.parameters()) + [p for p in llm.parameters() if p.requires_grad]
-    else:
-        raise ValueError(f"Invalid stage: {stage}")
+    # --- 4. Training setup ---
+    llm.get_input_embeddings().weight.requires_grad_(True)
+    speech_encoder.requires_grad_(False)
+    params_to_train = list(projector.parameters()) + [p for p in llm.parameters() if p.requires_grad]
 
     # --- 5. Dataset & Dataloader ---
     try:
@@ -509,19 +448,24 @@ def train(config: TrainingConfig, stage: int):
     print(f"Data split: {len(train_data)} training, {len(val_data)} validation.")
 
     train_dataset = AudioTextDataset(train_data, processor, tokenizer, config.zip_path)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
 
     val_dataset = AudioTextDataset(val_data, processor, tokenizer, config.zip_path)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
 
     # --- 6. Optimizer, Scheduler, Scaler ---
-    optimizer = torch.optim.AdamW(params_to_train, lr=lr)
+    optimizer = torch.optim.AdamW(params_to_train, lr=config.learning_rate)
 
     # Scheduler and Scaler
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda step: min(1.0, step / config.warmup_steps))
     scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
 
-    model = SLAMASR(llm)
+    model = SLAMASR(llm, atm_head_hidden_dim=256).to(device)
+
+    # Add ATM head parameters to the optimizer
+    params_to_train.extend(model.atm_head.parameters())
+    optimizer = torch.optim.AdamW(params_to_train, lr=config.learning_rate)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda step: min(1.0, step / config.warmup_steps))
 
     # --- 7. Checkpoint Loading ---
     start_epoch = 0
@@ -529,11 +473,15 @@ def train(config: TrainingConfig, stage: int):
     global_step = 0
     best_val_loss = float('inf')
     
-    checkpoint_path = os.path.join(config.output_dir, f"stage_{stage}_latest.pt")
+    checkpoint_path = os.path.join(config.output_dir, "latest.pt")
     if os.path.exists(checkpoint_path) and config.resume:
         print(f"Resuming from checkpoint: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=device)
         projector.load_state_dict(checkpoint['projector_state_dict'])
+        # Load ATM head if it exists in the checkpoint
+        if 'atm_head_state_dict' in checkpoint:
+            model.atm_head.load_state_dict(checkpoint['atm_head_state_dict'])
+            print("Loaded ATM head from checkpoint.")
         print(f"Loaded projector from checkpoint.")
         adapter_path_latest = os.path.join(config.output_dir, "latest_adapter")
         if os.path.isdir(adapter_path_latest):
@@ -548,74 +496,20 @@ def train(config: TrainingConfig, stage: int):
         global_step = checkpoint['global_step']
         start_batch_idx = checkpoint.get('batch_idx', 0) + 1
         best_val_loss = checkpoint.get('best_val_loss', float('inf'))
-        
-        # Run validation if resuming exactly on a validation step
-        if global_step > 0 and global_step % config.val_every_n_steps == 0:
-            print(f"\nRunning validation for resumed step {global_step} before continuing training...")
-            val_loss, val_wer, vis_data = evaluate(model, projector, speech_encoder, val_loader, tokenizer, device, dtype, config, discretization_fn, prompt_embeds)
-            print(f"Step {global_step} | Validation Loss: {val_loss:.3f} | Validation WER: {val_wer:.2f}%")
-            
-            print("\n--- Embedding Visualization Examples ---")
-            for item in vis_data:
-                print(f"  TARGET         : {item['target']}")
-                print(f"  GENERATED      : {item['generated']}")
-                print(f"  EMBEDS (sample): {item['embed_sample']}")
-                print(f"  AUDIO->TOKENS  : {item['audio_as_tokens'][:200]}...")
-            print("-------------------------------------\n")
-
-            if wandb.run and not wandb.run.disabled:
-                wandb.log({"val/loss": val_loss, "val/wer": val_wer, "step": global_step})
-                vis_table = wandb.Table(columns=["Target", "Generated", "Embed Sample", "Audio-as-Tokens"])
-                for item in vis_data:
-                    vis_table.add_data(item['target'], item['generated'], item['embed_sample'], item['audio_as_tokens'])
-                wandb.log({"validation/examples": vis_table, "step": global_step})
-            
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_checkpoint_path = os.path.join(config.output_dir, f"stage_{stage}_best.pt")
-                torch.save({
-                    'epoch': start_epoch,
-                    'global_step': global_step,
-                    'projector_state_dict': projector.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'scaler_state_dict': scaler.state_dict(),
-                    'best_val_loss': best_val_loss,
-                }, best_checkpoint_path)
-                llm.save_pretrained(os.path.join(config.output_dir, "best_adapter"), token=config.hf_token or None)
-                print(f"--- New Best Model ---\nSaved new best model at step {global_step} with val_loss: {best_val_loss:.3f}\n----------------------\n")
-        
         print(f"Resumed from Epoch {start_epoch}, Step {global_step}, Batch {start_batch_idx}")
-    elif stage == 2:
-        stage1_checkpoint_path = os.path.join(config.output_dir, "stage_1_best.pt")
-        if os.path.exists(stage1_checkpoint_path):
-            print(f"Initializing Stage 2 with best checkpoint from Stage 1: {stage1_checkpoint_path}")
-            checkpoint = torch.load(stage1_checkpoint_path, map_location=device)
-            projector.load_state_dict(checkpoint['projector_state_dict'])
-            adapter_path_best = os.path.join(config.output_dir, "best_adapter")
-            if os.path.isdir(adapter_path_best):
-                llm.load_adapter(adapter_path_best, adapter_name="default", is_trainable=True)
-                print(f"Loaded adapter from {adapter_path_best}.")
-            else:
-                print(f"Adapter directory {adapter_path_best} not found. Proceeding without loading adapter.")
-        else:
-            print("Warning: Stage 1 checkpoint not found for Stage 2 initialization.")
 
     # --- 8. Training Loop ---
-    for epoch in range(start_epoch, epochs):
+    for epoch in range(start_epoch, config.epochs):
         model.train()
         projector.train()
-        if stage == 1:
-            speech_encoder.eval()
-        elif stage == 2:
-            speech_encoder.eval()
-            llm.get_input_embeddings().weight.requires_grad_(True)
+        speech_encoder.eval()
+        llm.get_input_embeds().weight.requires_grad_(True)
         
         # --- Handle Resumption ---
         current_train_data = train_data
         
         if epoch == start_epoch and start_batch_idx > 0 and config.resume:
-            samples_to_skip = start_batch_idx * batch_size
+            samples_to_skip = start_batch_idx * config.batch_size
             if samples_to_skip < len(train_data):
                 print(f"Resuming epoch {epoch}. Skipping {samples_to_skip} samples.")
                 current_train_data = train_data[samples_to_skip:]
@@ -626,11 +520,11 @@ def train(config: TrainingConfig, stage: int):
         
         # Recreate dataset and dataloader for the current epoch state
         epoch_train_dataset = AudioTextDataset(current_train_data, processor, tokenizer, config.zip_path)
-        epoch_train_loader = DataLoader(epoch_train_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
+        epoch_train_loader = DataLoader(epoch_train_dataset, batch_size=config.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
         
         initial_batch_idx = start_batch_idx if epoch == start_epoch else 0
         total_batches = len(epoch_train_loader) + initial_batch_idx
-        pbar = tqdm(epoch_train_loader, desc=f"Epoch {epoch+1}/{epochs} [Stage {stage}]", initial=initial_batch_idx, total=total_batches)
+        pbar = tqdm(epoch_train_loader, desc=f"Epoch {epoch+1}/{config.epochs}", initial=initial_batch_idx, total=total_batches)
         
         for i, batch in enumerate(pbar, start=initial_batch_idx):
             is_update_step = (i + 1) % config.gradient_accumulation_steps == 0
@@ -640,7 +534,7 @@ def train(config: TrainingConfig, stage: int):
             input_values = batch['input_values'].to(device) # Shape: (B, 80, T_max)
             target_ids = batch['target_ids'].to(device)
 
-            with autocast(device_type="cuda", dtype=dtype, enabled=torch.cuda.is_available()):
+            with torch.amp.autocast(device_type="cuda", dtype=dtype, enabled=torch.cuda.is_available()):
                 # --- Feature Normalization ---
                 mean = input_values.mean(dim=-1, keepdim=True)
                 std = input_values.std(dim=-1, keepdim=True)
@@ -651,45 +545,64 @@ def train(config: TrainingConfig, stage: int):
                 audio_embeds_ds = downsample_and_concat(audio_embeds_raw, config.downsample_k)
                 projected_embeds = projector(audio_embeds_ds.to(torch.float32))
 
-                # 2. Discretize
-                codebook = llm.get_input_embeddings().weight
-                quantized_embeds, indices = discretization_fn(projected_embeds, codebook)
+                # --- Multi-modal Loss Calculation ---
+                loss_gen = 0
+                loss_contrastive = 0
+                loss_matching = 0
                 
-                # --- Cosine Similarity Metric & Loss ---
-                cosine_sim = F.cosine_similarity(projected_embeds, quantized_embeds, dim=-1).mean()
-                cosine_sim_metric = cosine_sim.detach().item()
+                # We need text embeddings for contrastive and matching losses
+                text_input_ids = target_ids.clone()
+                text_input_ids[text_input_ids == -100] = tokenizer.pad_token_id
+                text_embeds = llm.get_input_embeddings()(text_input_ids)
+                
+                # ---- 2a. Audio-Text Contrastive (ATC) Loss ----
+                # Pool the outputs of Q-Former and text embeddings
+                audio_feats = F.normalize(projected_embeds.mean(dim=1), p=2, dim=-1)
+                text_feats = F.normalize(text_embeds.mean(dim=1), p=2, dim=-1)
+                
+                sim_matrix = torch.matmul(audio_feats, text_feats.t()) * llm.logit_scale.exp()
+                ground_truth = torch.arange(audio_feats.shape[0], device=device)
+                loss_contrastive = (F.cross_entropy(sim_matrix, ground_truth) + F.cross_entropy(sim_matrix.t(), ground_truth)) / 2
 
-                # 3. Prepare for LLM
-                target_embeds = llm.get_input_embeddings()(target_ids.clamp(min=0))
+                # ---- 2b. Audio-Text Matching (ATM) Loss ----
+                with torch.no_grad():
+                    # Create negative samples by rolling the text embeddings
+                    rolled_text_embeds = torch.roll(text_embeds, shifts=1, dims=0)
+                    
+                # Positive pairs (audio + correct text)
+                positive_output = model.atm_head(projected_embeds.mean(dim=1) + text_feats)
+                # Negative pairs (audio + incorrect text)
+                negative_output = model.atm_head(projected_embeds.mean(dim=1) + F.normalize(rolled_text_embeds.mean(dim=1), p=2, dim=-1))
+                
+                atm_logits = torch.cat([positive_output, negative_output], dim=0)
+                atm_labels = torch.cat([torch.ones_like(positive_output), torch.zeros_like(negative_output)], dim=0)
+                loss_matching = F.binary_cross_entropy_with_logits(atm_logits, atm_labels)
+                
+                # ---- 2c. Generation Loss ----
+                target_embeds = text_embeds
                 
                 inputs_embeds = torch.cat([
-                    prompt_embeds['user'].expand(quantized_embeds.size(0), -1, -1),
-                    quantized_embeds,
-                    prompt_embeds['assistant'].expand(quantized_embeds.size(0), -1, -1),
+                    prompt_embeds['user'].expand(projected_embeds.size(0), -1, -1),
+                    projected_embeds,
+                    prompt_embeds['assistant'].expand(projected_embeds.size(0), -1, -1),
                     target_embeds
                 ], dim=1)
 
                 labels = torch.cat([
-                    torch.full((quantized_embeds.size(0), prompt_embeds['user'].size(0)), -100, device=device),
-                    torch.full((quantized_embeds.size(0), quantized_embeds.size(1)), -100, device=device),
-                    torch.full((quantized_embeds.size(0), prompt_embeds['assistant'].size(0)), -100, device=device),
+                    torch.full((projected_embeds.size(0), prompt_embeds['user'].size(0)), -100, device=device),
+                    torch.full((projected_embeds.size(0), projected_embeds.size(1)), -100, device=device),
+                    torch.full((projected_embeds.size(0), prompt_embeds['assistant'].size(0)), -100, device=device),
                     target_ids
                 ], dim=1)
 
                 outputs = model(inputs_embeds=inputs_embeds, labels=labels)
-                loss = outputs.loss / config.gradient_accumulation_steps
-
-                # --- Diversity (token-usage) regularization ---
-                hard_indices = indices[..., 0] if indices.ndim == 3 else indices  # (B, T)
-                flat_idx = hard_indices.view(-1)
-                token_counts = torch.bincount(flat_idx, minlength=codebook.size(0)).float()
-                token_probs = token_counts / (token_counts.sum() + 1e-6)
-                entropy = -(token_probs * (token_probs + 1e-9).log()).sum()
-                norm_entropy = entropy / math.log(token_probs.numel())
-                diversity_loss = (1.0 - norm_entropy)
-
-                # Diversity + Cosine similarity regularization
-                # loss = loss + config.diversity_weight * diversity_loss + config.cosine_sim_weight * (1.0 - cosine_sim)
+                loss_gen = outputs.loss
+                
+                # Total Loss
+                loss = (loss_gen + 
+                        config.contrastive_loss_weight * loss_contrastive + 
+                        config.matching_loss_weight * loss_matching
+                       ) / config.gradient_accumulation_steps
 
             if torch.isnan(loss):
                 print(f"Warning: NaN loss detected at step {global_step}. Skipping step.")
@@ -709,7 +622,7 @@ def train(config: TrainingConfig, stage: int):
                         grad_norm_before_clip += param_norm.item() ** 2
                 grad_norm_before_clip = (grad_norm_before_clip ** 0.5) if grad_norm_before_clip > 0 else 0.0
 
-                torch.nn.utils.clip_grad_norm_(params_to_train, config.clip_threshold)
+                torch.nn.utils.clip_grad_norm_(params_to_train, 1.0)
                 
                 grad_norm_after_clip = 0
                 for p in params_to_train:
@@ -731,9 +644,11 @@ def train(config: TrainingConfig, stage: int):
                 gpu_mem_alloc = torch.cuda.memory_allocated(device) / (1024 ** 3)
                 pbar.set_postfix({
                     "loss": f"{loss.item()*config.gradient_accumulation_steps:.3f}", 
+                    "loss_g": f"{loss_gen.item():.3f}",
+                    "loss_c": f"{loss_contrastive.item():.3f}",
+                    "loss_m": f"{loss_matching.item():.3f}",
                     "lr": f"{optimizer.param_groups[0]['lr']:.2e}",
                     "gn": f"{grad_norm_after_clip:.2f}",
-                    "cos_sim": f"{cosine_sim_metric:.2f}",
                     "mem_gb": f"{gpu_mem_alloc:.2f}",
                     "time": datetime.now().strftime("%H:%M:%S")
                 })
@@ -743,12 +658,14 @@ def train(config: TrainingConfig, stage: int):
                     if wandb.run and not wandb.run.disabled:
                         gpu_mem_max = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
                         wandb.log({
-                            "train/loss": loss.item()*config.gradient_accumulation_steps, 
+                            "train/loss_total": loss.item()*config.gradient_accumulation_steps,
+                            "train/loss_generation": loss_gen.item(),
+                            "train/loss_contrastive": loss_contrastive.item(),
+                            "train/loss_matching": loss_matching.item(),
                             "learning_rate": optimizer.param_groups[0]['lr'], 
                             "step": global_step,
                             "grad_norm_before_clip": grad_norm_before_clip,
                             "grad_norm_after_clip": grad_norm_after_clip,
-                            "cosine_sim_proj_quant": cosine_sim_metric,
                             "t_max": input_values.shape[2],
                             "gpu_mem_allocated_gb": gpu_mem_alloc,
                             "gpu_mem_max_allocated_gb": gpu_mem_max,
@@ -757,12 +674,13 @@ def train(config: TrainingConfig, stage: int):
 
                 # --- Checkpointing & Validation ---
                 if global_step > 0 and global_step % config.save_every_n_steps == 0:
-                    latest_checkpoint_path = os.path.join(config.output_dir, f"stage_{stage}_latest.pt")
+                    latest_checkpoint_path = os.path.join(config.output_dir, "latest.pt")
                     torch.save({
                         'epoch': epoch, 
                         'batch_idx': i,
                         'global_step': global_step,
                         'projector_state_dict': projector.state_dict(),
+                        'atm_head_state_dict': model.atm_head.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'scheduler_state_dict': scheduler.state_dict(),
                         'scaler_state_dict': scaler.state_dict(),
@@ -773,31 +691,20 @@ def train(config: TrainingConfig, stage: int):
 
                 if global_step > 0 and global_step % config.val_every_n_steps == 0:
                     pbar.write(f"\nRunning validation at step {global_step}...")
-                    val_loss, val_wer, vis_data = evaluate(model, projector, speech_encoder, val_loader, tokenizer, device, dtype, config, discretization_fn, prompt_embeds)
+                    val_loss, val_wer = evaluate(model, projector, speech_encoder, val_loader, tokenizer, device, dtype, config, prompt_embeds)
                     pbar.write(f"Step {global_step} | Validation Loss: {val_loss:.3f} | Validation WER: {val_wer:.2f}%")
                     
-                    pbar.write("\n--- Embedding Visualization Examples ---")
-                    for item in vis_data:
-                        pbar.write(f"  TARGET         : {item['target']}")
-                        pbar.write(f"  GENERATED      : {item['generated']}")
-                        pbar.write(f"  EMBEDS (sample): {item['embed_sample']}")
-                        pbar.write(f"  AUDIO->TOKENS  : {item['audio_as_tokens'][:200]}...")
-                    pbar.write("-------------------------------------\n")
-
                     if wandb.run and not wandb.run.disabled:
                         wandb.log({"val/loss": val_loss, "val/wer": val_wer, "step": global_step})
-                        vis_table = wandb.Table(columns=["Target", "Generated", "Embed Sample", "Audio-as-Tokens"])
-                        for item in vis_data:
-                            vis_table.add_data(item['target'], item['generated'], item['embed_sample'], item['audio_as_tokens'])
-                        wandb.log({"validation/examples": vis_table, "step": global_step})
                     
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
-                        best_checkpoint_path = os.path.join(config.output_dir, f"stage_{stage}_best.pt")
+                        best_checkpoint_path = os.path.join(config.output_dir, "best.pt")
                         torch.save({
                             'epoch': epoch,
                             'global_step': global_step,
                             'projector_state_dict': projector.state_dict(),
+                            'atm_head_state_dict': model.atm_head.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'scheduler_state_dict': scheduler.state_dict(),
                             'scaler_state_dict': scaler.state_dict(),
@@ -813,21 +720,9 @@ def train(config: TrainingConfig, stage: int):
 # 6.  Entry-point
 # ----------------------------
 if __name__ == "__main__":
-    # --- CHOOSE STAGE ---
-    STAGE = 1 # or 2
-    # --------------------
-
     config = TrainingConfig()
     
-    # Override config for different stages if needed
-    if STAGE == 1:
-        # Effective batch size of 32
-        config.gradient_accumulation_steps = 32 // config.batch_size_stage1
-    elif STAGE == 2:
-        # Effective batch size of 16
-        config.gradient_accumulation_steps = 16 // config.batch_size_stage2
-        config.wandb_name = "stage2-run"
-        config.resume = True
+    config.gradient_accumulation_steps = 32 // config.batch_size
 
     if config.wandb_api_key:
         try:
@@ -838,7 +733,10 @@ if __name__ == "__main__":
                 resume="allow",
                 config=vars(config),
             )
-            wandb.define_metric("train/loss", step_metric="step")
+            wandb.define_metric("train/loss_total", step_metric="step")
+            wandb.define_metric("train/loss_generation", step_metric="step")
+            wandb.define_metric("train/loss_contrastive", step_metric="step")
+            wandb.define_metric("train/loss_matching", step_metric="step")
             wandb.define_metric("val/loss", step_metric="step")
             wandb.define_metric("val/wer", step_metric="step")
             wandb.define_metric("learning_rate", step_metric="step")
@@ -849,4 +747,4 @@ if __name__ == "__main__":
         print("WANDB_API_KEY not found. Running wandb in disabled mode.")
         wandb.init(mode="disabled")
     
-    train(config, stage=STAGE) 
+    train(config) 
