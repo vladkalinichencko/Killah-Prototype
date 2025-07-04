@@ -118,7 +118,7 @@ class CaretUICoordinator: ObservableObject {
                 let rectInContentView = textView.convert(localRect, to: contentView)
 
                 let centerX = rectInContentView.origin.x + (rectInContentView.width / 2)
-                let verticalFineTune: CGFloat = 6
+                let verticalFineTune: CGFloat = 2
                 let centerY = rectInContentView.origin.y - rectInContentView.height + verticalFineTune
 
                 finalCaretPos = CGPoint(x: centerX, y: centerY)

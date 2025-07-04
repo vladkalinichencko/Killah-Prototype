@@ -12,20 +12,24 @@ import AppKit
 struct Killah_PrototypeApp: App {
     @StateObject private var llmEngine: LLMEngine
     @StateObject private var audioEngine: AudioEngine
-    @StateObject private var modelManager = ModelManager()
-    @StateObject private var themeManager = ThemeManager()
+    @StateObject private var modelManager: ModelManager
+    @StateObject private var themeManager: ThemeManager
     
     init() {
-        // Correct initialization: Create the dependencies first.
+        // Correct initialization: Create all dependencies first.
         let createdModelManager = ModelManager()
         let createdThemeManager = ThemeManager()
         let createdLlmEngine = LLMEngine(modelManager: createdModelManager)
+        let createdAudioEngine = AudioEngine(llmEngine: createdLlmEngine)
 
         // Then, assign them to the StateObject wrappers.
         _modelManager = StateObject(wrappedValue: createdModelManager)
         _themeManager = StateObject(wrappedValue: createdThemeManager)
         _llmEngine = StateObject(wrappedValue: createdLlmEngine)
-        _audioEngine = StateObject(wrappedValue: AudioEngine(llmEngine: createdLlmEngine))
+        _audioEngine = StateObject(wrappedValue: createdAudioEngine)
+        
+        // Trigger immediate verification so the UI knows whether models are present.
+        createdModelManager.verifyModels()
     }
     
     var body: some Scene {

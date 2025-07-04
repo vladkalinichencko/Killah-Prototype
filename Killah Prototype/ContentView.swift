@@ -72,7 +72,11 @@ struct ContentView: View {
         }
         .onAppear {
             updateToolbarStates()
-            if modelManager.status == .ready {
+            print("🖥️ ContentView.onAppear — model status = \(modelManager.status)")
+            if case .needsDownloading = modelManager.status {
+                // Статус уже говорит, что моделей нет – сразу открываем диалог
+                showModelDownloadSheet = true
+            } else if modelManager.status == .ready {
                 llmEngine.startEngine(for: "autocomplete")
                 llmEngine.startEngine(for: "audio")
             }
@@ -82,12 +86,13 @@ struct ContentView: View {
             modelManager.verifyModels()
         }
         .onChange(of: modelManager.status) { _, newStatus in
+            print("🔄 onChange status -> \(newStatus)")
             switch newStatus {
             case .ready:
                 llmEngine.startEngine(for: "autocomplete")
                 llmEngine.startEngine(for: "audio")
             case .needsDownloading:
-                showDownloadAlert()
+                showModelDownloadSheet = true
                 DispatchQueue.main.async {
                     llmEngine.stopEngine()
                 }
@@ -216,19 +221,6 @@ struct ContentView: View {
         isLeftAlignActive   = delegate.isLeftAlignActive()
         isCenterAlignActive = delegate.isCenterAlignActive()
         isRightAlignActive  = delegate.isRightAlignActive()
-    }
-    
-    private func showDownloadAlert() {
-        let alert = NSAlert()
-        alert.messageText = "AI Models Required"
-        alert.informativeText = "To enable AI features like autocompletion and voice commands, additional models need to be downloaded."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Download")
-        alert.addButton(withTitle: "Not Now")
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            showModelDownloadSheet = true
-        }
     }
 }
 

@@ -1169,81 +1169,66 @@ class CustomInlineNSTextView: NSTextView {
 
         animatedGhostTextLayer = CATextLayer()
         animatedGhostTextLayer?.contentsScale = window?.backingScaleFactor ?? 2.0
-        //animatedGhostTextLayer?.isHidden = true
+        animatedGhostTextLayer?.isHidden = true // скрыт до появления ghost-range
         layer?.addSublayer(animatedGhostTextLayer!)
 
-        animatedGhostTextMask = CAGradientLayer()
-        animatedGhostTextMask?.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        animatedGhostTextMask?.locations = [0, 0.01, 0.99, 1]
-        animatedGhostTextMask?.startPoint = CGPoint(x: 0, y: 0.5)
-        animatedGhostTextMask?.endPoint = CGPoint(x: 1, y: 0.5)
-
+        // Маска-градиент: слева чёрная (прячет), справа белая (показывает)
+        let mask = CAGradientLayer()
+        mask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.white.cgColor]
+        mask.locations = [0, 0, 0] // начальное положение – полностью скрыто
+        mask.startPoint = CGPoint(x: 0, y: 0.5)
+        mask.endPoint   = CGPoint(x: 1, y: 0.5)
+        animatedGhostTextMask = mask
         animatedGhostTextLayer?.mask = animatedGhostTextMask
     }
 
     private func updateAnimatedGhostLayer(isAnimating: Bool) {
+        // 1) Нет ghost-range ‑- слой скрываем и выходим
         guard let ghostRange = currentGhostTextRange, ghostRange.length > 0,
               let ghostText = self.ghostText(),
               let layoutManager = self.layoutManager,
               let textContainer = self.textContainer else {
-            //animatedGhostTextLayer?.isHidden = true
+            animatedGhostTextLayer?.isHidden = true
             return
         }
 
+        // Убедимся, что layout актуален
+        layoutManager.ensureLayout(for: textContainer)
+
+        // 2) Рассчитываем rect текста
         let glyphRange = layoutManager.glyphRange(forCharacterRange: ghostRange, actualCharacterRange: nil)
         var textRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        
-        // Adjust for text container insets
         textRect.origin.x += self.textContainerOrigin.x
         textRect.origin.y += self.textContainerOrigin.y
 
-        // Create gradient text
-        let gradient = NSGradient(colors: [NSColor.red, NSColor.systemPink])!
+        // 3) Наполняем слой
         let attributedString = NSAttributedString(string: ghostText, attributes: [
             .font: self.font ?? NSFont.systemFont(ofSize: 16),
-            .foregroundColor: NSColor.clear // This color is a placeholder, gradient is drawn over it
+            .foregroundColor: NSColor.white
         ])
-        
-        let textImage = NSImage(size: textRect.size, flipped: false) { rect in
-            gradient.draw(in: rect, angle: 0)
-            return true
-        }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+
+        animatedGhostTextLayer?.isHidden = false
         animatedGhostTextLayer?.frame = textRect
         animatedGhostTextLayer?.string = attributedString
         animatedGhostTextLayer?.font = self.font
         animatedGhostTextLayer?.fontSize = self.font?.pointSize ?? 16
-        //animatedGhostTextLayer?.isHidden = false
-        animatedGhostTextMask?.frame = animatedGhostTextLayer?.bounds ?? .zero
-        
-        let maskLayer = CALayer()
-        maskLayer.frame = textRect
-        maskLayer.backgroundColor = NSColor.black.cgColor
-        
-        let gradientImageLayer = CALayer()
-        gradientImageLayer.frame = maskLayer.bounds
-        gradientImageLayer.contents = textImage
-        
-        maskLayer.addSublayer(gradientImageLayer)
-        
-        // This part is tricky. The best way is to render the text into an image and use that as the contents.
-        // For simplicity in this step, let's just color it. A true gradient requires more drawing code.
-        let gradientColor = NSColor(gradient: gradient, with: textRect.size)!
-        animatedGhostTextLayer?.foregroundColor = gradientColor.cgColor
 
+        // Маска должна совпадать по размеру
+        animatedGhostTextMask?.frame = animatedGhostTextLayer?.bounds ?? .zero
 
         CATransaction.commit()
 
         if isAnimating {
             animatedGhostTextMask?.removeAnimation(forKey: "revealAnimation")
             let animation = CABasicAnimation(keyPath: "locations")
-            animation.fromValue = [0, 0, 0, 0]
-            animation.toValue = [0, 0.4, 0.6, 1]
-            animation.duration = 0.4
+            animation.fromValue = [0, 0, 0]
+            animation.toValue   = [0, 1, 1]
+            animation.duration  = 0.4
             animation.isRemovedOnCompletion = false
-            animation.fillMode = .forwards
+            animation.fillMode  = .forwards
             animatedGhostTextMask?.add(animation, forKey: "revealAnimation")
         }
     }

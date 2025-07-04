@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import ZIPFoundation
 
 class ModelManager: NSObject, ObservableObject {
 
@@ -13,10 +12,17 @@ class ModelManager: NSObject, ObservableObject {
     }
 
     struct ModelFile: Equatable {
-        let name: String
-        let remoteURL: URL
-        // We can add checksums later for validation
-        // let checksum: String
+        /// Directory name where all files for this model will be stored locally
+        let dirName: String
+        /// Repository ID on Hugging Face (e.g. "facebook/wav2vec2-xls-r-300m")
+        let repoID: String
+        /// REQUIRED files that must exist inside dirName for the model to be considered complete
+        let requiredFiles: [String]
+        /// Builds a full remote URL for a concrete file inside the repo
+        func remoteURL(for fileName: String) -> URL {
+            // Use /resolve/main/<file> endpoint so that we download raw bytes, not html
+            return URL(string: "https://huggingface.co/\(repoID)/resolve/main/\(fileName)")!
+        }
     }
 
     @Published var status: ModelStatus = .checking
@@ -24,8 +30,31 @@ class ModelManager: NSObject, ObservableObject {
     // The list of models to be downloaded from the cloud.
     // Directories like model weights should be zipped for easier download.
     private var allModels: [ModelFile] = [
-        ModelFile(name: "wav2vec2-xls-r-300m.zip", remoteURL: URL(string: "https://huggingface.co/facebook/wav2vec2-xls-r-300m/archive/main.zip")!),
-        ModelFile(name: "gemma-3-4b-pt-q8bits.zip", remoteURL: URL(string: "https://huggingface.co/poinka/gemma-3-4b-pt-q8bits/archive/main.zip")!)
+        ModelFile(
+            dirName: "wav2vec2-xls-r-300m",
+            repoID: "facebook/wav2vec2-xls-r-300m",
+            requiredFiles: [
+                "config.json",
+                "preprocessor_config.json",
+                "pytorch_model.bin"
+            ]
+        ),
+        ModelFile(
+            dirName: "gemma-3-4b-pt-q8bits",
+            repoID: "poinka/gemma-3-4b-pt-q8bits",
+            requiredFiles: [
+                "config.json",
+                "tokenizer.json",
+                "tokenizer.model",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+                "added_tokens.json",
+                "generation_config.json",
+                "pytorch_model.bin",
+                "model.safetensors",
+                "model.gguf"
+            ]
+        )
         // Any other models like MLP projectors or LoRA adapters can be added here.
         // If they are single files, they don't need to be zipped.
     ]
@@ -59,49 +88,28 @@ class ModelManager: NSObject, ObservableObject {
     }
 
     func verifyModels() {
+        print("📂 ModelManager.verifyModels() called")
         DispatchQueue.global(qos: .userInitiated).async {
             var missingFiles: [ModelFile] = []
             for model in self.allModels {
-                let localZipPath = self.getModelPath(for: model.name) // path if zip file exists
-
-                // --- Обработка zip-моделей ---
-                if model.name.hasSuffix(".zip") {
-                    let dirName = model.name.replacingOccurrences(of: ".zip", with: "")
-                    let extractedDirPath = self.getModelPath(for: dirName)
-
-                    // 1) Каталог уже есть → модель OK
-                    if extractedDirPath != nil { continue }
-
-                    // 2) Каталога нет, но zip есть → пытаемся распаковать
-                    if let zipPath = localZipPath {
-                        do {
-                            let zipURL = URL(fileURLWithPath: zipPath)
-                            try self.unzip(file: zipURL)
-                            try FileManager.default.removeItem(atPath: zipPath)
-                            // Проверяем ещё раз
-                            if self.getModelPath(for: dirName) != nil {
-                                continue // успешно распаковали
-                            } else {
-                                missingFiles.append(model) // что-то пошло не так
-                            }
-                        } catch {
-                            print("⚠️ Failed to unzip \(model.name): \(error.localizedDescription)")
-                            missingFiles.append(model)
-                        }
+                print("🔍 Checking model directory: \(model.dirName)")
+                if let dirPath = self.getModelPath(for: model.dirName) {
+                    if self.requiredFilesPresent(model: model, in: dirPath) {
+                        continue
                     } else {
-                        // 3) Ни каталога, ни zip-файла → нужно скачать
+                        print("⚠️ Directory \(model.dirName) exists but missing required files")
                         missingFiles.append(model)
+                        continue
                     }
-                    continue // переходим к следующей модели
-                }
-
-                // --- Обычные (не zip) файлы ---
-                if localZipPath == nil { // file missing
+                } else {
+                    // каталога нет, нужно скачать
                     missingFiles.append(model)
                 }
+                continue // переходим к следующей модели
             }
             
             DispatchQueue.main.async {
+                print("✅ Verification finished. Missing files: \(missingFiles.map { $0.dirName })")
                 if missingFiles.isEmpty {
                     self.status = .ready
                 } else {
@@ -112,7 +120,10 @@ class ModelManager: NSObject, ObservableObject {
     }
 
     func downloadModels() {
+        print("⬇️ ModelManager.downloadModels() initiated")
         guard case .needsDownloading(let missing) = status else { return }
+        
+        print("Files to download: \(missing.map { $0.dirName })")
         
         DispatchQueue.main.async {
             self.status = .downloading(progress: 0)
@@ -122,16 +133,38 @@ class ModelManager: NSObject, ObservableObject {
         self.downloadProgressPerTask = [:]
 
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        downloadTasks = missing.map { modelFile in
-            self.downloadGroup.enter()
-            let task = session.downloadTask(with: modelFile.remoteURL)
-            return task
+
+        var tasks: [URLSessionDownloadTask] = []
+        var modelsToSize: [(ModelFile, String, URL)] = []
+
+        for model in missing {
+            let modelDirURL = self.modelsDirectory.appendingPathComponent(model.dirName)
+            try? FileManager.default.createDirectory(at: modelDirURL, withIntermediateDirectories: true, attributes: nil)
+
+            for fileName in model.requiredFiles {
+                let localPath = modelDirURL.appendingPathComponent(fileName).path
+                if FileManager.default.fileExists(atPath: localPath) { continue }
+                let remoteURL = model.remoteURL(for: fileName)
+                let task = session.downloadTask(with: remoteURL)
+                task.taskDescription = "\(model.dirName)|\(fileName)"
+                downloadGroup.enter()
+                tasks.append(task)
+                modelsToSize.append((model, fileName, remoteURL))
+            }
         }
-        
-        // Use an async task to get estimated sizes
+
+        if tasks.isEmpty {
+            DispatchQueue.main.async {
+                self.status = .ready
+            }
+            return
+        }
+
+        self.downloadTasks = tasks
+
         Task {
-            self.totalBytesToDownload = await getTotalSize(for: missing)
-            downloadTasks.forEach { $0.resume() }
+            self.totalBytesToDownload = await getTotalSizeForFiles(modelsToSize.map { $0.2 })
+            tasks.forEach { $0.resume() }
         }
 
         downloadGroup.notify(queue: .main) {
@@ -140,10 +173,10 @@ class ModelManager: NSObject, ObservableObject {
         }
     }
 
-    private func getTotalSize(for models: [ModelFile]) async -> Int64 {
+    private func getTotalSizeForFiles(_ urls: [URL]) async -> Int64 {
         var totalSize: Int64 = 0
-        for model in models {
-            var request = URLRequest(url: model.remoteURL)
+        for url in urls {
+            var request = URLRequest(url: url)
             request.httpMethod = "HEAD"
             if let (_, response) = try? await URLSession.shared.data(for: request),
                let httpResponse = response as? HTTPURLResponse,
@@ -152,7 +185,19 @@ class ModelManager: NSObject, ObservableObject {
                 totalSize += bytes
             }
         }
-        return totalSize > 0 ? totalSize : 1 // Avoid division by zero
+        return totalSize > 0 ? totalSize : 1
+    }
+
+    private func requiredFilesPresent(model: ModelFile, in dirPath: String) -> Bool {
+        let fm = FileManager.default
+        for req in model.requiredFiles {
+            let fullPath = (dirPath as NSString).appendingPathComponent(req)
+            if !fm.fileExists(atPath: fullPath) {
+                print("⛔️ Missing required file: \(req) in \(dirPath)")
+                return false
+            }
+        }
+        return true
     }
 }
 
@@ -162,33 +207,23 @@ extension ModelManager: URLSessionDownloadDelegate {
             downloadGroup.leave()
         }
 
-        guard let url = downloadTask.originalRequest?.url,
-              let model = allModels.first(where: { $0.remoteURL == url }) else {
-            DispatchQueue.main.async {
-                self.status = .error("Could not identify downloaded model for URL: \(downloadTask.originalRequest?.url?.absoluteString ?? "N/A")")
-            }
+        guard let description = downloadTask.taskDescription,
+              let pipeIndex = description.firstIndex(of: "|") else {
+            downloadGroup.leave()
             return
         }
 
-        let destinationURL = modelsDirectory.appendingPathComponent(model.name)
+        let modelDirName = String(description[..<pipeIndex])
+        let fileName = String(description[description.index(after: pipeIndex)...])
+
+        let destinationDir = modelsDirectory.appendingPathComponent(modelDirName)
+        let destinationURL = destinationDir.appendingPathComponent(fileName)
+
         let fileManager = FileManager.default
         
         do {
             try? fileManager.removeItem(at: destinationURL)
             try fileManager.moveItem(at: location, to: destinationURL)
-            
-            if destinationURL.pathExtension == "zip" {
-                // Распаковываем архив и удаляем исходный .zip
-                do {
-                    try unzip(file: destinationURL)
-                    try fileManager.removeItem(at: destinationURL)
-                } catch {
-                    DispatchQueue.main.async {
-                        self.status = .error("Failed to unzip model: \(error.localizedDescription)")
-                    }
-                    return
-                }
-            }
         } catch {
             DispatchQueue.main.async {
                 self.status = .error("Failed to move file: \(error.localizedDescription)")
@@ -227,22 +262,6 @@ extension ModelManager: URLSessionDownloadDelegate {
     }
     
     private func unzip(file: URL) throws {
-        let fileManager = FileManager()
-        let destinationURL = file.deletingPathExtension()
-        try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
-        try fileManager.unzipItem(at: file, to: destinationURL)
-        
-        // After unzipping from Hugging Face, we often get a single sub-folder with a long name like 'repo-main'.
-        // Let's move its contents up to our destination directory for cleaner paths.
-        let unzippedContents = try fileManager.contentsOfDirectory(at: destinationURL, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
-        if let repoFolder = unzippedContents.first, (try repoFolder.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true {
-            let innerContents = try fileManager.contentsOfDirectory(at: repoFolder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
-            for item in innerContents {
-                let destinationItemURL = destinationURL.appendingPathComponent(item.lastPathComponent)
-                try? fileManager.removeItem(at: destinationItemURL) // remove if exists
-                try fileManager.moveItem(at: item, to: destinationItemURL)
-            }
-            try fileManager.removeItem(at: repoFolder)
-        }
+        // This function is kept for backward compatibility but is no longer used in the new per-file download flow.
     }
 } 
