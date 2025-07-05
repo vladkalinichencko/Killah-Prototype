@@ -8,25 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		400286892DC78581002A3D68 /* Scripts in Resources */ = {isa = PBXBuildFile; fileRef = 400286882DC78581002A3D68 /* Scripts */; };
-		401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */; };
 		401F13CB2E14FCEA00890957 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 4065646D2E08A5E700C323FB /* ZIPFoundation */; };
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */ = {isa = PBXBuildFile; fileRef = 40C0B9A32E15258500F0DD0D /* main_llm.py */; };
-		76B9C66D2E06EFE700B65D39 /* wav2vec2-xls-r-300m in Resources */ = {isa = PBXBuildFile; fileRef = 76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */; };
 		76D31FC22E01EC4A00F35B70 /* audio.py in Resources */ = {isa = PBXBuildFile; fileRef = 76D31FC12E01EC4A00F35B70 /* audio.py */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		400286882DC78581002A3D68 /* Scripts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Scripts; sourceTree = "<group>"; };
-		401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-3-4b-pt-q4_0.gguf"; path = "Resources/gemma-3-4b-pt-q4_0.gguf"; sourceTree = "<group>"; };
 		408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = autocomplete.py; path = Resources/autocomplete.py; sourceTree = "<group>"; };
 		408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = requirements.txt; path = Resources/requirements.txt; sourceTree = "<group>"; };
-		408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */ = {isa = PBXFileReference; lastKnownFileType = file; name = minillm_export.pt; path = Resources/minillm_export.pt; sourceTree = "<group>"; };
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C0B9A32E15258500F0DD0D /* main_llm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = main_llm.py; path = Resources/main_llm.py; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "wav2vec2-xls-r-300m"; path = "Resources/wav2vec2-xls-r-300m"; sourceTree = "<group>"; };
 		76D31FC12E01EC4A00F35B70 /* audio.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = audio.py; path = Resources/audio.py; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -54,16 +49,13 @@
 			isa = PBXGroup;
 			children = (
 				40C0B9A32E15258500F0DD0D /* main_llm.py */,
-				76B9C66C2E06EFE700B65D39 /* wav2vec2-xls-r-300m */,
 				76D31FC12E01EC4A00F35B70 /* audio.py */,
 				408B41602DCBA8A800318056 /* Info.plist */,
-				408AC4C22DC7DAEF00ED87D4 /* minillm_export.pt */,
 				408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */,
 				408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */,
 				400286882DC78581002A3D68 /* Scripts */,
 				40C731612DC63936004D753D /* Killah Prototype */,
 				40C731602DC63936004D753D /* Products */,
-				401BFA432E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf */,
 			);
 			sourceTree = "<group>";
 		};
@@ -145,10 +137,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */,
-				76B9C66D2E06EFE700B65D39 /* wav2vec2-xls-r-300m in Resources */,
 				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,
-				401BFA442E039E1D002AD70E /* gemma-3-4b-pt-q4_0.gguf in Resources */,
 				408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */,
 				400286892DC78581002A3D68 /* Scripts in Resources */,
 			);

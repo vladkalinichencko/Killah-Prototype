@@ -44,7 +44,7 @@ import random
 @dataclass
 class TrainingConfig:
     # Models & Paths
-    llm_model: str = "google/gemma-3-4b-pt"
+    llm_model: str = "google/gemma-3-4b-it"
     audio_encoder_model: str = "openai/whisper-small"
     output_dir: str = "checkpoints_audio_llm"
     jsonl_path: str = "transcripts.jsonl"
@@ -66,16 +66,19 @@ class TrainingConfig:
 
     # Training parameters
     batch_size_stage1: int = 8
-    batch_size_stage2: int = 8
+    batch_size_stage2: int = 6
     gradient_accumulation_steps: int = 4
     epochs_stage1: int = 5
     epochs_stage2: int = 2
     lr_stage1: float = 5e-5
     lr_stage2: float = 1e-5
-    warmup_steps: int = 1000
-    val_test_size: float = 0.05
+    warmup_steps: int = 200
+    val_test_size: float = 0.001
     clip_threshold: float = 5.0
     
+    # Scheduler
+    cosine_restart_steps: int = 250
+
     # Checkpointing & Logging
     resume: bool = True
     val_every_n_steps: int = 500
@@ -88,7 +91,7 @@ class TrainingConfig:
 
     # W&B
     wandb_project: str = "audio-llm-asr"
-    wandb_name: str = "stage1-run-x3"
+    wandb_name: str = "stage1-run-x4"
     wandb_api_key: str = ""
 
     # Quantization
@@ -98,9 +101,10 @@ class TrainingConfig:
 
     # Diversity loss
     diversity_weight: float = 0.5
-
     # Cosine similarity regularization
     cosine_sim_weight: float = 0.2
+    # MSE regularization
+    proj_mse_weight: float = 0.1
 
 # ----------------------------
 # 1.  Audio -> LLM Bridge
@@ -468,9 +472,17 @@ def train(config: TrainingConfig, stage: int):
         output_dim=llm_hidden
     ).to(device)
 
-    # Pre-embed the fixed text parts of the prompt
-    user_prompt_tokens = tokenizer("USER: ", return_tensors="pt").input_ids.to(device)
-    assistant_prompt_tokens = tokenizer(" Transcribe speech to text. ASSISTANT: ", return_tensors="pt").input_ids.to(device)
+    # Pre-embed the fixed text parts of the prompt, adapted for Gemma-IT
+    # The <start_of_turn> model part is where the transcription should begin.
+    user_prompt_tokens = tokenizer(
+        "<start_of_turn>user\nTranscribe the following audio:", 
+        return_tensors="pt", add_special_tokens=False
+    ).input_ids.to(device)
+    assistant_prompt_tokens = tokenizer(
+        "<end_of_turn>\n<start_of_turn>model\n", 
+        return_tensors="pt", add_special_tokens=False
+    ).input_ids.to(device)
+    
     prompt_embeds = {
         'user': llm.get_input_embeddings()(user_prompt_tokens).squeeze(0),
         'assistant': llm.get_input_embeddings()(assistant_prompt_tokens).squeeze(0)
@@ -518,7 +530,13 @@ def train(config: TrainingConfig, stage: int):
     optimizer = torch.optim.AdamW(params_to_train, lr=lr)
 
     # Scheduler and Scaler
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda step: min(1.0, step / config.warmup_steps))
+    if stage == 2:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=config.cosine_restart_steps, eta_min=1e-5)
+        print(f"Using CosineAnnealingWarmRestarts scheduler with T_0={config.cosine_restart_steps}")
+    else: # Stage 1
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda step: min(1.0, step / config.warmup_steps))
+        print(f"Using LambdaLR (linear warmup) scheduler with {config.warmup_steps} steps")
+
     scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
 
     model = SLAMASR(llm)
@@ -688,8 +706,14 @@ def train(config: TrainingConfig, stage: int):
                 norm_entropy = entropy / math.log(token_probs.numel())
                 diversity_loss = (1.0 - norm_entropy)
 
-                # Diversity + Cosine similarity regularization
-                # loss = loss + config.diversity_weight * diversity_loss + config.cosine_sim_weight * (1.0 - cosine_sim)
+                # Regularizations
+                proj_mse_loss = F.mse_loss(projected_embeds, quantized_embeds.detach())
+                loss = (
+                    loss +
+                    config.diversity_weight * diversity_loss +
+                    config.cosine_sim_weight * (1.0 - cosine_sim) +
+                    config.proj_mse_weight * proj_mse_loss
+                )
 
             if torch.isnan(loss):
                 print(f"Warning: NaN loss detected at step {global_step}. Skipping step.")
@@ -711,6 +735,9 @@ def train(config: TrainingConfig, stage: int):
 
                 torch.nn.utils.clip_grad_norm_(params_to_train, config.clip_threshold)
                 
+                # --- Projector grad diagnostics ---
+                proj_grad_mean = projector.net[0].weight.grad.abs().mean().item() if projector.net[0].weight.grad is not None else 0.0
+                
                 grad_norm_after_clip = 0
                 for p in params_to_train:
                     if p.grad is not None:
@@ -722,7 +749,10 @@ def train(config: TrainingConfig, stage: int):
                 scaler.step(optimizer)
                 scaler.update()
             
-                if global_step < config.warmup_steps:
+                if stage == 1:
+                    if global_step < config.warmup_steps:
+                        scheduler.step()
+                else: # Stage 2
                     scheduler.step()
             
                 global_step += 1
@@ -734,21 +764,25 @@ def train(config: TrainingConfig, stage: int):
                     "lr": f"{optimizer.param_groups[0]['lr']:.2e}",
                     "gn": f"{grad_norm_after_clip:.2f}",
                     "cos_sim": f"{cosine_sim_metric:.2f}",
+                    "proj_gm": f"{proj_grad_mean:.3e}",
                     "mem_gb": f"{gpu_mem_alloc:.2f}",
                     "time": datetime.now().strftime("%H:%M:%S")
                 })
 
                 if global_step % config.log_every_n_steps == 0:
-                    pbar.write(f"Step {global_step} | Train Loss: {loss.item()*config.gradient_accumulation_steps:.4f}")
+                    pbar.write(f"Step {global_step} | Train Loss: {loss.item()*config.gradient_accumulation_steps:.4f} | ProjGrad: {proj_grad_mean:.3e}")
                     if wandb.run and not wandb.run.disabled:
                         gpu_mem_max = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
                         wandb.log({
-                            "train/loss": loss.item()*config.gradient_accumulation_steps, 
-                            "learning_rate": optimizer.param_groups[0]['lr'], 
+                            "train/loss": loss.item()*config.gradient_accumulation_steps,
+                            "train/proj_mse": proj_mse_loss.item(),
+                            "train/diversity_loss": diversity_loss.item(),
+                            "train/cosine_sim": cosine_sim_metric,
+                            "learning_rate": optimizer.param_groups[0]['lr'],
+                            "proj_grad_mean": proj_grad_mean,
                             "step": global_step,
                             "grad_norm_before_clip": grad_norm_before_clip,
                             "grad_norm_after_clip": grad_norm_after_clip,
-                            "cosine_sim_proj_quant": cosine_sim_metric,
                             "t_max": input_values.shape[2],
                             "gpu_mem_allocated_gb": gpu_mem_alloc,
                             "gpu_mem_max_allocated_gb": gpu_mem_max,
@@ -814,7 +848,7 @@ def train(config: TrainingConfig, stage: int):
 # ----------------------------
 if __name__ == "__main__":
     # --- CHOOSE STAGE ---
-    STAGE = 1 # or 2
+    STAGE = 2 # or 2
     # --------------------
 
     config = TrainingConfig()
