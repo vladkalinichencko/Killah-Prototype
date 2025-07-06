@@ -2,20 +2,18 @@ import torch
 import sys
 import traceback
 import os
+import select
+import time
+from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig, TextIteratorStreamer
+from typing import List, Optional
+from main_llm import get_model_loader
+import threading
 
 # Add the script's directory to the Python path to allow local imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
-import select
-import time
-import torch.nn as nn
-import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig, TextIteratorStreamer
-from typing import List, Optional
-from main_llm import get_model_loader
-import threading
 
 MAX_SUGGESTION_TOKENS = int(os.environ.get("MAX_SUGGESTION_TOKENS", "10"))
 
@@ -43,37 +41,45 @@ def initialize_models():
         return None, None
 
 # Функция для генерации автодополнений
-def generate_suggestions(model, tokenizer, prompt_text: str, persona_vector: Optional[List[float]] = None, max_suggestions: int = 1) -> List[str]:
+def generate_suggestions(model, tokenizer, prompt_text: str, max_suggestions: int = 1) -> List[str]:
+    """Generate suggestions using built-in KV caching."""
     try:
         inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
         
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=MAX_SUGGESTION_TOKENS,
-            do_sample=True,
-            temperature=0.8,
-            top_k=50,
-            top_p=0.9,
-            repetition_penalty=1.2,
-            num_return_sequences=max_suggestions
-        )
-
+        generation_config = {
+            "max_new_tokens": MAX_SUGGESTION_TOKENS,
+            "do_sample": True,
+            "temperature": 0.8,
+            "top_k": 50,
+            "top_p": 0.9,
+            "repetition_penalty": 1.2,
+            "num_return_sequences": max_suggestions,
+            "use_cache": True,
+            "return_dict_in_generate": True,
+            "output_attentions": False,
+            "output_hidden_states": False,
+        }
+        
+        outputs = model.generate(**inputs, **generation_config)
+        
         suggestions = []
-        for output in outputs:
+        for output in outputs.sequences:
             generated_text = tokenizer.decode(output, skip_special_tokens=True)
             suggestion = generated_text[len(prompt_text):].strip().split("\n")[0]
             if suggestion and suggestion not in suggestions:
                 suggestions.append(suggestion)
         
         return suggestions[:max_suggestions]
+        
     except Exception as e:
         print(f"Error during generation: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
-        return []
+        return [], None
+        
 
 # --- Новый стример токенов ---
 def stream_suggestions(model, tokenizer, prompt_text: str):
-    """Yield incremental chunks (delta) without repeating the prompt text."""
+    """Stream incremental tokens using built-in KV caching."""
     try:
         inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
         streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
@@ -87,11 +93,22 @@ def stream_suggestions(model, tokenizer, prompt_text: str):
             "top_p": 0.9,
             "repetition_penalty": 1.2,
             "streamer": streamer,
+            "use_cache": True,
+            "return_dict_in_generate": True,
+            "output_attentions": False,
+            "output_hidden_states": False,
         }
-
-        thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+                
+        def generate_with_streamer():
+            try:
+                model.generate(**generation_kwargs)
+            except Exception as e:
+                print(f"Error in generate_with_streamer: {e}", file=sys.stderr, flush=True)
+                traceback.print_exc(file=sys.stderr)
+        
+        thread = threading.Thread(target=generate_with_streamer)
         thread.start()
-
+        
         generated_so_far = ""
         for text in streamer:
             # Remove original prompt prefix if still present
@@ -109,9 +126,11 @@ def stream_suggestions(model, tokenizer, prompt_text: str):
             # Clean leading whitespace only at very first delta
             if not generated_so_far.strip():
                 continue
+                
             yield delta
 
         thread.join()
+        
     except Exception as e:
         print(f"Error during streaming generation: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
@@ -126,7 +145,7 @@ if __name__ == "__main__":
 
     current_prompt = None
     interrupted = False
-
+    
     while True:
         try:
             if not model or not tokenizer:
