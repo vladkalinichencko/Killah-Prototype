@@ -29,8 +29,8 @@ class LLM:
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_dir,
                     torch_dtype=torch.bfloat16,
-                    device_map=device
-                )
+                    use_safetensors=False
+                ).to(device)
             else:
                 print(f"Local model incomplete or missing at {self.model_dir}. Downloading from Hugging Face...", file=sys.stderr, flush=True)
                 self.tokenizer = AutoTokenizer.from_pretrained(hf_id, cache_dir=self.model_dir)
@@ -38,9 +38,9 @@ class LLM:
                 self.model = AutoModelForCausalLM.from_pretrained(
                     hf_id,
                     torch_dtype=torch.bfloat16,
-                    device_map=device,
-                    cache_dir=self.model_dir
-                )
+                    cache_dir=self.model_dir,
+                    use_safetensors=False
+                ).to(device)
             print("Model and tokenizer loaded successfully", file=sys.stderr, flush=True)
             return True
         except Exception as e:

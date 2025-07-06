@@ -232,6 +232,12 @@ source "$VENV_DST/bin/activate"
 echo "💿 Устанавливаем пакеты (сначала из кэша, потом из сети)..."
 pip install --find-links="$PROJECT_DIR/Resources/wheels" -r "$PROJECT_DIR/Resources/requirements.txt"
 
+echo "⬆️  Обновляем pip до последней версии…"
+pip install --upgrade pip
+
+echo "⬆️  Обновляем пакеты до свежих версий…"
+pip install --upgrade --upgrade-strategy eager --find-links="$PROJECT_DIR/Resources/wheels" -r "$PROJECT_DIR/Resources/requirements.txt"
+
 deactivate
 echo "✅ Зависимости установлены"
 

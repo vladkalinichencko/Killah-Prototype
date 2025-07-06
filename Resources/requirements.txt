@@ -4,3 +4,4 @@ accelerate
 librosa
 torchao
 protobuf
+safetensors>=0.4.3

@@ -31,19 +31,9 @@ struct SmartCaretView: View {
     @State private var isCaretHovered: Bool = false
     @State private var isCaretPressed: Bool = false
     @State private var caretXOffset: CGFloat = 0
-    @State private var animatedShadowColor: Color = .clear
-    @State private var animatedShadowRadius: CGFloat = 0
-    @State private var animatedShadowOffset: CGSize = .zero
-    @State private var animatedShadowColor2: Color = .clear
-    @State private var animatedShadowRadius2: CGFloat = 0
-    @State private var animatedShadowOffset2: CGSize = .zero
-    @State private var animatedShadowColor3: Color = .clear
-    @State private var animatedShadowRadius3: CGFloat = 0
-    @State private var animatedShadowOffset3: CGSize = .zero
-    @State private var animatedCaretColor: Color? = nil
     
-    // Unified animation for all caret UI elements
-    private let caretUIAnimation = Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)
+    // Unified animation
+    private let caretUIAnimation = Animation.spring(response: 0.3, dampingFraction: 0.8)
 
     var body: some View {
         ZStack {
@@ -55,17 +45,15 @@ struct SmartCaretView: View {
                     height: coordinator.caretSize.height
                 )
                 .scaleEffect(isCaretPressed ? 0.9 : 1.0)
-                .shadow(color: shadowColor, radius: shadowRadius)
-                .shadow(color: animatedShadowColor, radius: animatedShadowRadius, x: animatedShadowOffset.width, y: animatedShadowOffset.height)
-                .shadow(color: animatedShadowColor2, radius: animatedShadowRadius2, x: animatedShadowOffset2.width, y: animatedShadowOffset2.height)
-                .shadow(color: animatedShadowColor3, radius: animatedShadowRadius3, x: animatedShadowOffset3.width, y: animatedShadowOffset3.height)
+                .shadow(color: isCaretPressed ? Color.red.opacity(0.5) : .clear, radius: 5)
+                .shadow(color: hoverGlowColor, radius: 4)
+                .shadow(color: generationGlowColor, radius: 4, x: 6, y: 0)
+                .shadow(color: generationGlowColor, radius: 8, x: 16, y: 0)
+                .shadow(color: generationGlowColor, radius: 4, x: -4, y: 0)
                 .offset(x: caretXOffset)
-                .onChange(of: coordinator.triggerCaretEffect) { _, newValue in
-                    if newValue {
-                        caretGenerationHighlight()
-                        coordinator.triggerCaretEffect = false
-                    }
-                }
+                .animation(caretUIAnimation, value: coordinator.isGenerating)
+                .animation(caretUIAnimation, value: isCaretHovered)
+                .animation(caretUIAnimation, value: isCaretPressed)
                 .onChange(of: coordinator.triggerBounceRight) { _, newValue in
                     if newValue {
                         caretBounceRight()
@@ -82,7 +70,7 @@ struct SmartCaretView: View {
 
             // 2. Invisible Interaction Area
             Rectangle()
-                .fill(Color.clear)
+                .fill(Color.primary.opacity(0.0001))
                 .frame(
                     width: (coordinator.caretSize.width * 1.4) + 10, // Max visual width + padding
                     height: coordinator.caretSize.height + 10
@@ -114,8 +102,8 @@ struct SmartCaretView: View {
     
     // Local computed properties
     private var caretColor: Color {
-        if let animated = animatedCaretColor {
-            return animated
+        if coordinator.isGenerating {
+            return Color.red
         } else if coordinator.isRecording {
             return Color.red.opacity(0.7)
         } else if isCaretHovered {
@@ -125,6 +113,14 @@ struct SmartCaretView: View {
         }
     }
     
+    private var generationGlowColor: Color {
+        coordinator.isGenerating ? Color.red.opacity(0.7) : .clear
+    }
+    
+    private var hoverGlowColor: Color {
+        (!coordinator.isGenerating && isCaretHovered && !isCaretPressed) ? Color.red.opacity(0.4) : .clear
+    }
+    
     private var caretWidth: CGFloat {
         if isCaretPressed {
             return coordinator.caretSize.width * 1.2
@@ -132,26 +128,6 @@ struct SmartCaretView: View {
             return coordinator.caretSize.width * 1.4
         } else {
             return coordinator.caretSize.width
-        }
-    }
-    
-    private var shadowColor: Color {
-        if isCaretPressed {
-            return Color.red
-        } else if isCaretHovered {
-            return Color.red.opacity(0.7)
-        } else {
-            return Color.clear
-        }
-    }
-    
-    private var shadowRadius: CGFloat {
-        if isCaretPressed {
-            return 5
-        } else if isCaretHovered {
-            return 10
-        } else {
-            return 0
         }
     }
     
@@ -176,36 +152,6 @@ struct SmartCaretView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
                 caretXOffset = 0
-            }
-        }
-    }
-
-    // --- Generation Highlight ---
-    func caretGenerationHighlight() {
-        withAnimation(.easeOut(duration: 0.1)) {
-            animatedShadowColor = Color.red
-            animatedShadowRadius = 4
-            animatedShadowOffset = CGSize(width: -4, height:0)
-            animatedShadowColor2 = Color.red
-            animatedShadowRadius2 = 4
-            animatedShadowOffset2 = CGSize(width: 6, height: 0)
-            animatedShadowColor3 = Color.red
-            animatedShadowRadius3 = 8
-            animatedShadowOffset3 = CGSize(width: 16, height: 0)
-            animatedCaretColor = Color.red
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                animatedShadowColor = .clear
-                animatedShadowRadius = 0
-                animatedShadowOffset = .zero
-                animatedShadowColor2 = .clear
-                animatedShadowRadius2 = 0
-                animatedShadowOffset2 = .zero
-                animatedShadowColor3 = .clear
-                animatedShadowRadius3 = 0
-                animatedShadowOffset3 = .zero
-                animatedCaretColor = nil
             }
         }
     }

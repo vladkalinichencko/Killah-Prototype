@@ -72,6 +72,11 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
         if let modelDir = modelDirectory {
             env["MODEL_DIR"] = modelDir
         }
+        // Force single-threaded execution for compatibility with macOS sandboxing
+        // and to prevent joblib from trying to spawn processes.
+        env["OMP_NUM_THREADS"] = "1"
+        env["TOKENIZERS_PARALLELISM"] = "false"
+        
         process.environment = env
         
         process.arguments = [scriptPath]

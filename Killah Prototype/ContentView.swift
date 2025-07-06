@@ -69,6 +69,16 @@ struct ContentView: View {
         ZStack {
             // Main editor UI
             editorView
+            // Loading indicator overlay
+            VStack {
+                Spacer()
+                LoadingOverlayView()
+                    .opacity(isEngineStarting ? 1 : 0)
+                    .offset(y: isEngineStarting ? 0 : 120)
+                    .animation(.easeInOut(duration: 0.35), value: isEngineStarting)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 20)
+            }
         }
         .onAppear {
             updateToolbarStates()
@@ -221,6 +231,12 @@ struct ContentView: View {
         isLeftAlignActive   = delegate.isLeftAlignActive()
         isCenterAlignActive = delegate.isCenterAlignActive()
         isRightAlignActive  = delegate.isRightAlignActive()
+    }
+
+    // MARK: - Helper
+    private var isEngineStarting: Bool {
+        (llmEngine.getRunnerState(for: "autocomplete") == .starting) ||
+        (llmEngine.getRunnerState(for: "audio") == .starting)
     }
 }
 

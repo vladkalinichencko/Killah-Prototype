@@ -12,9 +12,12 @@ import select
 import time
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig, TextIteratorStreamer
 from typing import List, Optional
 from main_llm import get_model_loader
+import threading
+
+MAX_SUGGESTION_TOKENS = int(os.environ.get("MAX_SUGGESTION_TOKENS", "100"))
 
 def initialize_models():
     """Initializes and returns the model and tokenizer."""
@@ -46,7 +49,7 @@ def generate_suggestions(model, tokenizer, prompt_text: str, persona_vector: Opt
         
         outputs = model.generate(
             **inputs,
-            max_new_tokens=20,
+            max_new_tokens=MAX_SUGGESTION_TOKENS,
             do_sample=True,
             temperature=0.8,
             top_k=50,
@@ -67,6 +70,51 @@ def generate_suggestions(model, tokenizer, prompt_text: str, persona_vector: Opt
         print(f"Error during generation: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
         return []
+
+# --- Новый стример токенов ---
+def stream_suggestions(model, tokenizer, prompt_text: str):
+    """Yield incremental chunks (delta) without repeating the prompt text."""
+    try:
+        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+        streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
+
+        generation_kwargs = {
+            **inputs,
+            "max_new_tokens": MAX_SUGGESTION_TOKENS,
+            "do_sample": True,
+            "temperature": 0.8,
+            "top_k": 50,
+            "top_p": 0.9,
+            "repetition_penalty": 1.2,
+            "streamer": streamer,
+        }
+
+        thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+        thread.start()
+
+        generated_so_far = ""
+        for text in streamer:
+            # Remove original prompt prefix if still present
+            if prompt_text and text.startswith(prompt_text):
+                text = text[len(prompt_text):]
+
+            # If nothing new – skip
+            if text == generated_so_far:
+                continue
+
+            # Compute delta
+            delta = text[len(generated_so_far):] if text.startswith(generated_so_far) else text
+            generated_so_far = text
+
+            # Clean leading whitespace only at very first delta
+            if not generated_so_far.strip():
+                continue
+            yield delta
+
+        thread.join()
+    except Exception as e:
+        print(f"Error during streaming generation: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
 
 # Основной цикл обработки
 if __name__ == "__main__":
@@ -110,16 +158,10 @@ if __name__ == "__main__":
 
                 if prompt_to_process:
                     print("Streaming suggestions...", flush=True)
-                    suggestions = generate_suggestions(model, tokenizer, prompt_to_process)
-                    for suggestion in suggestions:
+                    for token in stream_suggestions(model, tokenizer, prompt_to_process):
                         if interrupted:
                             break
-                        words = suggestion.split()
-                        for word in words:
-                            if interrupted:
-                                break
-                            print(word + " ", flush=True)
-                            time.sleep(0.07)
+                        print(token, flush=True)
                     if not interrupted:
                         print("END_SUGGESTIONS", flush=True)
                 else:

@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		400286892DC78581002A3D68 /* Scripts in Resources */ = {isa = PBXBuildFile; fileRef = 400286882DC78581002A3D68 /* Scripts */; };
-		401F13CB2E14FCEA00890957 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 4065646D2E08A5E700C323FB /* ZIPFoundation */; };
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */ = {isa = PBXBuildFile; fileRef = 40C0B9A32E15258500F0DD0D /* main_llm.py */; };
@@ -38,7 +37,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				401F13CB2E14FCEA00890957 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -88,7 +86,6 @@
 			);
 			name = "Killah Prototype";
 			packageProductDependencies = (
-				4065646D2E08A5E700C323FB /* ZIPFoundation */,
 			);
 			productName = "Killah Prototype";
 			productReference = 40C7315F2DC63936004D753D /* Killah Prototype.app */;
@@ -119,7 +116,6 @@
 			mainGroup = 40C731562DC63936004D753D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 40C731602DC63936004D753D /* Products */;
@@ -422,25 +418,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.9;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		4065646D2E08A5E700C323FB /* ZIPFoundation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 4065646E2E08A5E700C323FB /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
-			productName = ZIPFoundation;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 40C731572DC63936004D753D /* Project object */;
 }
