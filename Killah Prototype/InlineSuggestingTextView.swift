@@ -398,8 +398,17 @@ class Coordinator: NSObject, NSTextViewDelegate {
         }
         
         func requestTextCompletion(for textView: CustomInlineNSTextView) {
-            let currentPromptForLLM = textView.committedText()
-            guard !currentPromptForLLM.isEmpty else {
+            // Извлекаем текст до позиции курсора
+            let cursorPosition = textView.selectedRange.location
+            let fullText = textView.committedText()
+            let safeCursorPosition = min(cursorPosition, fullText.utf16.count)
+            let endIndex = fullText.index(fullText.startIndex, offsetBy: safeCursorPosition, limitedBy: fullText.endIndex) ?? fullText.endIndex
+            let currentPromptForLLM = String(fullText[..<endIndex])
+            
+            print("Cursor position: \(cursorPosition), text length: \(fullText.utf16.count)")
+            
+            // Проверяем, пустой ли промпт
+            if currentPromptForLLM.isEmpty {
                 print("💤 requestTextCompletion: prompt is empty, skipping")
                 textView.clearGhostText()
                 llmEngine.abortSuggestion(for: "autocomplete")
@@ -412,7 +421,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
                 return
             }
 
-            print("✨ requestTextCompletion: sending prompt length \(currentPromptForLLM.count)")
+            print("✨ requestTextCompletion: sending prompt length \(currentPromptForLLM.count) at cursor position \(cursorPosition)")
 
             if textView.ghostText() != nil {
                 textView.clearGhostText()

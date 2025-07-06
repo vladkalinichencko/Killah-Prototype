@@ -48,7 +48,7 @@ struct ContentView: View {
     @EnvironmentObject var llmEngine: LLMEngine
     @EnvironmentObject var audioEngine: AudioEngine
     @EnvironmentObject var modelManager: ModelManager
-    @State private var debouncer = Debouncer(delay: 0.5)
+    @State private var debouncer = Debouncer(delay: 1.0)
     @State private var textFormattingDelegate: TextFormattingDelegate?
     
     @State private var isBoldActive = false

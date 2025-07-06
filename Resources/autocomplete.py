@@ -17,7 +17,7 @@ from typing import List, Optional
 from main_llm import get_model_loader
 import threading
 
-MAX_SUGGESTION_TOKENS = int(os.environ.get("MAX_SUGGESTION_TOKENS", "100"))
+MAX_SUGGESTION_TOKENS = int(os.environ.get("MAX_SUGGESTION_TOKENS", "10"))
 
 def initialize_models():
     """Initializes and returns the model and tokenizer."""
