@@ -82,6 +82,7 @@ def stream_suggestions(model, tokenizer, prompt_text: str):
     """Stream incremental tokens using built-in KV caching."""
     try:
         inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+        prompt_token_ids = tokenizer.encode(prompt_text, add_special_tokens=False)
         streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
 
         generation_kwargs = {
@@ -110,24 +111,35 @@ def stream_suggestions(model, tokenizer, prompt_text: str):
         thread.start()
         
         generated_so_far = ""
+        len_so_far = 0
+        prompt_processed = False
         for text in streamer:
-            # Remove original prompt prefix if still present
-            if prompt_text and text.startswith(prompt_text):
-                text = text[len(prompt_text):]
-
-            # If nothing new – skip
-            if text == generated_so_far:
-                continue
-
             # Compute delta
             delta = text[len(generated_so_far):] if text.startswith(generated_so_far) else text
             generated_so_far = text
 
-            # Clean leading whitespace only at very first delta
-            if not generated_so_far.strip():
+            # Skip empty or whitespace-only deltas
+            if not delta.strip():
                 continue
-                
-            yield delta
+
+            # Check if we're still processing the prompt
+            if not prompt_processed:
+                # Tokenize the current generated text to compare with prompt tokens
+                generated_token_ids = tokenizer.encode(generated_so_far, add_special_tokens=False)
+                if len_so_far <= len(prompt_token_ids):
+                    # Still within prompt length, skip outputting
+                    len_so_far += len(generated_token_ids)
+                    continue
+                else:
+                    # We've passed the prompt tokens, start outputting
+                    prompt_processed = True
+                    # Output only the part after the prompt
+                    delta = generated_so_far[len(prompt_text):] if generated_so_far.startswith(prompt_text) else delta
+                    if delta.strip():
+                        yield delta
+            else:
+                # Output new tokens
+                yield delta
 
         thread.join()
         
