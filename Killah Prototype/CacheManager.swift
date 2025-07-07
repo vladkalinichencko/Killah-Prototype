@@ -10,13 +10,13 @@ class CacheManager {
         suggestionCache.countLimit = 1000 // Adjust based on memory needs
     }
     
-    func getCachedSuggestion(for prompt: String) -> String? {
-        let key = prompt.sha256() as NSString
+    func getCachedSuggestion(for prompt: String, temperature: Float) -> String? {
+        let key = "\(prompt)_\(temperature)".sha256() as NSString
         return suggestionCache.object(forKey: key) as String?
     }
     
-    func setCachedSuggestion(_ suggestion: String, for prompt: String) {
-        let key = prompt.sha256() as NSString
+    func setCachedSuggestion(_ suggestion: String, for prompt: String, temperature: Float) {
+        let key = "\(prompt)_\(temperature)".sha256() as NSString
         suggestionCache.setObject(suggestion as NSString, forKey: key)
     }
     

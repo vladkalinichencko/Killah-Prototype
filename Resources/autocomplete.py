@@ -7,6 +7,7 @@ import time
 from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig, TextIteratorStreamer
 from typing import List, Optional
 from main_llm import get_model_loader
+from min_p_sampling import MinPLogitsProcessor
 import threading
 
 # Add the script's directory to the Python path to allow local imports
@@ -78,18 +79,20 @@ def generate_suggestions(model, tokenizer, prompt_text: str, max_suggestions: in
         
 
 # --- Новый стример токенов ---
-def stream_suggestions(model, tokenizer, prompt_text: str):
+def stream_suggestions(model, tokenizer, prompt_text: str, temperature: float, min_p: float = 0.1):
     """Stream incremental tokens using built-in KV caching."""
     try:
         inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
         prompt_token_ids = tokenizer.encode(prompt_text, add_special_tokens=False)
         streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
-
+        
+        logits_processor = [MinPLogitsProcessor(min_p)]
+        
         generation_kwargs = {
             **inputs,
             "max_new_tokens": MAX_SUGGESTION_TOKENS,
             "do_sample": True,
-            "temperature": 0.8,
+            "temperature": temperature,
             "top_k": 50,
             "top_p": 0.9,
             "repetition_penalty": 1.2,
@@ -98,6 +101,7 @@ def stream_suggestions(model, tokenizer, prompt_text: str):
             "return_dict_in_generate": True,
             "output_attentions": False,
             "output_hidden_states": False,
+            "logits_processor": logits_processor,
         }
                 
         def generate_with_streamer():
@@ -157,6 +161,7 @@ if __name__ == "__main__":
 
     current_prompt = None
     interrupted = False
+    current_temperature = 0.8  # Initial temperature
     
     while True:
         try:
@@ -175,7 +180,17 @@ if __name__ == "__main__":
                     break
                 
                 new_prompt = new_prompt_line.strip()
-                if new_prompt:
+                if new_prompt.startswith("CMD:"):
+                    command = new_prompt[4:]
+                    if command == "INCREASE_TEMPERATURE":
+                        current_temperature = min(current_temperature + 0.1, 2.0)
+                        print(f"Temperature increased to {current_temperature}", file=sys.stderr, flush=True)
+                    elif command == "DECREASE_TEMPERATURE":
+                        current_temperature = max(current_temperature - 0.1, 0.1)
+                        print(f"Temperature decreased to {current_temperature}", file=sys.stderr, flush=True)
+                    else:
+                        print(f"Unknown command: {command}", file=sys.stderr, flush=True)
+                elif new_prompt:
                     current_prompt = new_prompt
                     interrupted = True
                 else:
@@ -189,7 +204,7 @@ if __name__ == "__main__":
 
                 if prompt_to_process:
                     print("Streaming suggestions...", flush=True)
-                    for token in stream_suggestions(model, tokenizer, prompt_to_process):
+                    for token in stream_suggestions(model, tokenizer, prompt_to_process, current_temperature):
                         if interrupted:
                             break
                         print(token, flush=True)

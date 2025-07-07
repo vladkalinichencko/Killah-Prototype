@@ -1067,11 +1067,12 @@ class CustomInlineNSTextView: NSTextView {
             llmInteractionDelegate?.dismissSuggestion()
             return
         }
-        // Handle Cmd+Right and Cmd+Left for custom completions/animations
+        // Handle Cmd+Right and Cmd+Left for next suggestion with higher temperature and for previous suggestion
         if event.modifierFlags.contains(.command) {
             if event.keyCode == KeyCodes.rightArrow {
                 // Cmd+Right: regenerate suggestion, trigger bounce right
                 if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                    coordinator.llmEngine.sendCommand("INCREASE_TEMPERATURE", for: "autocomplete")
                     self.clearGhostText()
                     coordinator.caretCoordinator?.triggerBounceRight = true
                     coordinator.parent.debouncer.debounce { [weak coordinator, weak self] in
@@ -1083,6 +1084,7 @@ class CustomInlineNSTextView: NSTextView {
             } else if event.keyCode == KeyCodes.leftArrow {
                 // Cmd+Left: regenerate suggestion, trigger bounce left
                 if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                    coordinator.llmEngine.sendCommand("DECREASE_TEMPERATURE", for: "autocomplete")
                     self.clearGhostText()
                     coordinator.caretCoordinator?.triggerBounceLeft = true
                     coordinator.parent.debouncer.debounce { [weak coordinator, weak self] in

@@ -37,7 +37,8 @@ class LLMEngine: ObservableObject {
 
     private var runners: [String: PythonScriptRunner] = [:]
     private var cancellables = Set<AnyCancellable>()
-
+    private var currentTemperature: Float = 0.8 // Начальное значение температуры
+    
     init(modelManager: ModelManager) {
         print("LLMEngine init")
         let modelDir = modelManager.getModelsDirectory().path
@@ -77,7 +78,7 @@ class LLMEngine: ObservableObject {
         onComplete: @escaping (Result<String, LLMError>) -> Void
     ) {
         // Check cache first
-        if let cachedSuggestion = CacheManager.shared.getCachedSuggestion(for: prompt) {
+        if let cachedSuggestion = CacheManager.shared.getCachedSuggestion(for: prompt, temperature: self.currentTemperature) {
             print("📦 Cache hit for prompt: \"\(prompt)\"")
             // Split cached suggestion into tokens like in BaseScriptRunner
             let tokens = cachedSuggestion.components(separatedBy: .newlines).filter { !$0.isEmpty }
@@ -111,7 +112,7 @@ class LLMEngine: ObservableObject {
             switch result {
             case .success(let suggestion):
                 print("Saving suggestion to cache for prompt \"\(prompt)\"")
-                CacheManager.shared.setCachedSuggestion(suggestion, for: prompt)
+                CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
                 onComplete(.success(suggestion))
             case .failure(let error):
                 onComplete(.failure(error))
@@ -120,7 +121,23 @@ class LLMEngine: ObservableObject {
         updateEngineState(runner.state)
     }
     
-
+    func sendCommand(_ command: String, for script: String) {
+        guard let runner = runners[script] else {
+            print("❌ Unknown script: \(script)")
+            return
+        }
+        
+        if command == "INCREASE_TEMPERATURE" {
+            currentTemperature = min(currentTemperature + 0.1, 2.0)
+            print("🌡️ Temperature increased to \(currentTemperature)")
+        } else if command == "DECREASE_TEMPERATURE" {
+            currentTemperature = max(currentTemperature - 0.1, 0.1)
+            print("🌡️ Temperature decreased to \(currentTemperature)")
+        }
+        
+        runner.sendCommand(command)
+    }
+    
     func stopEngine(for script: String? = nil) {
         if let script = script, let runner = runners[script] {
             runner.stop()
