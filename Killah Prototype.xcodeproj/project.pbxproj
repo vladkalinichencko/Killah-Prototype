@@ -11,6 +11,7 @@
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */ = {isa = PBXBuildFile; fileRef = 40C0B9A32E15258500F0DD0D /* main_llm.py */; };
+		766B4C212E1C5B93008E73F5 /* min_p_sampling.py in Resources */ = {isa = PBXBuildFile; fileRef = 766B4C202E1C5B93008E73F5 /* min_p_sampling.py */; };
 		76D31FC22E01EC4A00F35B70 /* audio.py in Resources */ = {isa = PBXBuildFile; fileRef = 76D31FC12E01EC4A00F35B70 /* audio.py */; };
 /* End PBXBuildFile section */
 
@@ -21,6 +22,7 @@
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C0B9A32E15258500F0DD0D /* main_llm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = main_llm.py; path = Resources/main_llm.py; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		766B4C202E1C5B93008E73F5 /* min_p_sampling.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = min_p_sampling.py; path = Resources/min_p_sampling.py; sourceTree = "<group>"; };
 		76D31FC12E01EC4A00F35B70 /* audio.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = audio.py; path = Resources/audio.py; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -46,6 +48,7 @@
 		40C731562DC63936004D753D = {
 			isa = PBXGroup;
 			children = (
+				766B4C202E1C5B93008E73F5 /* min_p_sampling.py */,
 				40C0B9A32E15258500F0DD0D /* main_llm.py */,
 				76D31FC12E01EC4A00F35B70 /* audio.py */,
 				408B41602DCBA8A800318056 /* Info.plist */,
@@ -132,6 +135,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				766B4C212E1C5B93008E73F5 /* min_p_sampling.py in Resources */,
 				40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */,
 				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,
 				408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */,
