@@ -8,7 +8,6 @@ class NonResponderHostingView<Content: View>: NSHostingView<Content> {
 
 class CaretUICoordinator: ObservableObject {
     // Триггер для caret-эффекта (анимации)
-    @Published var triggerCaretEffect: Bool = false
     @Published var triggerBounceRight: Bool = false
     @Published var triggerBounceLeft: Bool = false
     @Published var caretPositionInWindow: CGPoint = .zero
@@ -26,6 +25,9 @@ class CaretUICoordinator: ObservableObject {
 
     // User input
     @Published var promptText: String = ""
+    
+    // LLM generation state
+    @Published var isGenerating: Bool = false
     
     // Computed property - overlay should show ONLY during recording, not during processing
     var shouldShowOverlay: Bool {
@@ -117,15 +119,9 @@ class CaretUICoordinator: ObservableObject {
                 // Конвертируем прямоугольник из локальных координат textView в координаты contentView окна
                 let rectInContentView = textView.convert(localRect, to: contentView)
 
-                // Система координат contentView (AppKit) имеет начало в левом нижнем углу.
-                // Система координат SwiftUI ZStack имеет начало в левом верхнем углу.
-                // Нам нужно перевернуть Y.
-                _ = contentView.frame.height
-                
-                // Рассчитываем ЦЕНТР каретки для модификатора .position()
                 let centerX = rectInContentView.origin.x + (rectInContentView.width / 2)
-                // In SwiftUI, origin is top-left but we can use direct y coordinate for ZStack positioning
-                let centerY = rectInContentView.origin.y + (rectInContentView.height / 2)
+                let verticalFineTune: CGFloat = 2
+                let centerY = rectInContentView.origin.y - rectInContentView.height + verticalFineTune
 
                 finalCaretPos = CGPoint(x: centerX, y: centerY)
                 finalCaretHeight = rectInContentView.height
@@ -195,11 +191,6 @@ class CaretUICoordinator: ObservableObject {
         let maxHeight = minHeight * 3
         let totalHeight = CGFloat(numberOfLines) * lineHeight + 12 // 12 — паддинг
         return max(minHeight, min(totalHeight, maxHeight))
-    }
-
-    /// Вызвать caret-эффект (анимацию)
-    func triggerCaretGenerationEffect() {
-        triggerCaretEffect = true
     }
 }
 

@@ -47,7 +47,8 @@ struct ContentView: View {
     @Binding var document: TextDocument
     @EnvironmentObject var llmEngine: LLMEngine
     @EnvironmentObject var audioEngine: AudioEngine
-    @State private var debouncer = Debouncer(delay: 0.5)
+    @EnvironmentObject var modelManager: ModelManager
+    @State private var debouncer = Debouncer(delay: 1.0)
     @State private var textFormattingDelegate: TextFormattingDelegate?
     
     @State private var isBoldActive = false
@@ -62,7 +63,65 @@ struct ContentView: View {
     @State private var isCenterAlignActive = false
     @State private var isRightAlignActive  = false
 
+    @State private var showModelDownloadSheet = false
+
     var body: some View {
+        ZStack {
+            // Main editor UI
+            editorView
+            // Loading indicator overlay
+            VStack {
+                Spacer()
+                LoadingOverlayView()
+                    .opacity(isEngineStarting ? 1 : 0)
+                    .offset(y: isEngineStarting ? 0 : 120)
+                    .animation(.easeInOut(duration: 0.35), value: isEngineStarting)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 20)
+            }
+        }
+        .onAppear {
+            updateToolbarStates()
+            print("🖥️ ContentView.onAppear — model status = \(modelManager.status)")
+            if case .needsDownloading = modelManager.status {
+                // Статус уже говорит, что моделей нет – сразу открываем диалог
+                showModelDownloadSheet = true
+            } else if modelManager.status == .ready {
+                llmEngine.startEngine(for: "autocomplete")
+                llmEngine.startEngine(for: "audio")
+            }
+        }
+        .task {
+            // Проверяем наличие моделей вне фазы построения вью, чтобы избежать предупреждения SwiftUI
+            modelManager.verifyModels()
+        }
+        .onChange(of: modelManager.status) { _, newStatus in
+            print("🔄 onChange status -> \(newStatus)")
+            switch newStatus {
+            case .ready:
+                llmEngine.startEngine(for: "autocomplete")
+                llmEngine.startEngine(for: "audio")
+            case .needsDownloading:
+                showModelDownloadSheet = true
+                DispatchQueue.main.async {
+                    llmEngine.stopEngine()
+                }
+            default:
+                break
+            }
+        }
+        .sheet(isPresented: $showModelDownloadSheet) {
+            ModelDownloadView(
+                modelManager: modelManager,
+                missingFiles: (modelManager.status.missingFiles ?? []),
+                isDownloading: modelManager.status.isDownloading,
+                downloadProgress: modelManager.status.progress
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private var editorView: some View {
         ZStack(alignment: .top) {
             // Фон, соответствующий титлбару
             Color.clear
@@ -102,20 +161,26 @@ struct ContentView: View {
                 .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
             
             if let coordinator = caretCoordinator {
-                caretOverlays(coordinator: coordinator)
+                // Position caret at its computed center from the coordinator
+                SmartCaretView(coordinator: coordinator)
+                    .position(x: coordinator.caretPositionInWindow.x,
+                              y: coordinator.caretPositionInWindow.y)
+                    .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
+                               value: coordinator.caretPositionInWindow)
+                
+                // Only show the AI-related overlays when models are ready
+                if modelManager.status == .ready {
+                    caretOverlays(coordinator: coordinator)
+                }
             }
         }
-        .onAppear {
-            llmEngine.startEngine(for: "autocomplete")
-            llmEngine.startEngine(for: "audio")
-            updateToolbarStates()
-        }
     }
-
+    
     @ViewBuilder
     private func caretOverlays(coordinator: CaretUICoordinator) -> some View {
-        let verticalAdjustment: CGFloat = 5
-        let baseY = coordinator.caretPositionInWindow.y - coordinator.caretSize.height - verticalAdjustment
+        let verticalAdjustment: CGFloat = 5 
+        let caretTopY = coordinator.caretPositionInWindow.y - (coordinator.caretSize.height / 2)        
+        let baseY = caretTopY - verticalAdjustment
         let baseX = coordinator.caretPositionInWindow.x - 5
         
         ZStack {
@@ -126,26 +191,22 @@ struct ContentView: View {
                     .onTapGesture { }
             }
             
-            SmartCaretView(coordinator: coordinator)
-                .position(x: coordinator.caretPositionInWindow.x, y: baseY)
-                .zIndex(0)
-            
             CaretRecordButton(coordinator: coordinator)
-                .position(x: baseX - coordinator.caretButtonPadding, y: baseY)
+                .position(x: coordinator.caretPositionInWindow.x - coordinator.caretButtonPadding, y: baseY)
                 .zIndex(2)
             
             CaretPromptField(coordinator: coordinator)
-                .position(x: baseX + coordinator.caretButtonPadding + coordinator.basePromptFieldWidth / 2, y: baseY)
+                .position(x: coordinator.caretPositionInWindow.x + coordinator.caretButtonPadding + coordinator.basePromptFieldWidth / 2, y: baseY)
                 .zIndex(2)
             
             CaretPauseButton(coordinator: coordinator)
                 .position(x: coordinator.caretPositionInWindow.x,
-                          y: baseY - coordinator.caretButtonPadding)
+                          y: baseY - coordinator.caretButtonPadding - 15) // Скорректировано
                 .zIndex(2)
             
             CaretStopButton(coordinator: coordinator)
                 .position(x: coordinator.caretPositionInWindow.x,
-                          y: baseY + coordinator.caretButtonPadding + 15)
+                          y: baseY + coordinator.caretButtonPadding) // Скорректировано
                 .zIndex(2)
             
             AudioWaveformView(coordinator: coordinator)
@@ -171,18 +232,42 @@ struct ContentView: View {
         isCenterAlignActive = delegate.isCenterAlignActive()
         isRightAlignActive  = delegate.isRightAlignActive()
     }
+
+    // MARK: - Helper
+    private var isEngineStarting: Bool {
+        (llmEngine.getRunnerState(for: "autocomplete") == .starting) ||
+        (llmEngine.getRunnerState(for: "audio") == .starting)
+    }
 }
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        let llmEngine = LLMEngine()
+        let modelManager = ModelManager()
+        let llmEngine = LLMEngine(modelManager: modelManager)
         let audioEngine = AudioEngine(llmEngine: llmEngine)
+        
         ContentView(
-            // 1) Binding-заглушка для документа
             document: .constant(TextDocument())
         )
-        // 2) Прокидываем оба environmentObject
         .environmentObject(llmEngine)
         .environmentObject(audioEngine)
+        .environmentObject(modelManager)
+    }
+}
+
+extension ModelManager.ModelStatus {
+    var isDownloading: Bool {
+        if case .downloading = self { return true }
+        return false
+    }
+    
+    var progress: Double {
+        if case .downloading(let progress) = self { return progress }
+        return 0
+    }
+    
+    var missingFiles: [ModelManager.ModelFile]? {
+        if case .needsDownloading(let files) = self { return files }
+        return nil
     }
 }

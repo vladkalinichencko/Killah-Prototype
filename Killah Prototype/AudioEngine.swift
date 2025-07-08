@@ -1,5 +1,5 @@
 import Foundation
-import SwiftUICore
+import SwiftUI
 import AVFoundation
 import Combine
 import Speech

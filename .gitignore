@@ -53,6 +53,6 @@ killah_venv/
 Jupyter Notebooks/
 
 # Model
-Resources/gemma-3-4b-pt/
+Resources/gemma-3-4b-pt-q8bits/
 Resources/gemma-3-4b-pt-q4_0.gguf
 Resources/wav2vec2-xls-r-300m/

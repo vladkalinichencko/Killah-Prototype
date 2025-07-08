@@ -10,13 +10,26 @@ import AppKit
 
 @main
 struct Killah_PrototypeApp: App {
-    @StateObject private var llmEngine = LLMEngine()
+    @StateObject private var llmEngine: LLMEngine
     @StateObject private var audioEngine: AudioEngine
+    @StateObject private var modelManager: ModelManager
+    @StateObject private var themeManager: ThemeManager
     
     init() {
-        let llm = LLMEngine()
-        _llmEngine = StateObject(wrappedValue: llm)
-        _audioEngine = StateObject(wrappedValue: AudioEngine(llmEngine: llm))
+        // Correct initialization: Create all dependencies first.
+        let createdModelManager = ModelManager()
+        let createdThemeManager = ThemeManager()
+        let createdLlmEngine = LLMEngine(modelManager: createdModelManager)
+        let createdAudioEngine = AudioEngine(llmEngine: createdLlmEngine)
+
+        // Then, assign them to the StateObject wrappers.
+        _modelManager = StateObject(wrappedValue: createdModelManager)
+        _themeManager = StateObject(wrappedValue: createdThemeManager)
+        _llmEngine = StateObject(wrappedValue: createdLlmEngine)
+        _audioEngine = StateObject(wrappedValue: createdAudioEngine)
+        
+        // Trigger immediate verification so the UI knows whether models are present.
+        createdModelManager.verifyModels()
     }
     
     var body: some Scene {
@@ -24,10 +37,13 @@ struct Killah_PrototypeApp: App {
             ContentView(document: file.$document)
                 .environmentObject(llmEngine)
                 .environmentObject(audioEngine)
+                .environmentObject(themeManager)
+                .environmentObject(modelManager)
                 .containerBackground(.regularMaterial, for: .window)
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .onAppear {
                     if let window = NSApplication.shared.windows.first {
+                        themeManager.applyTheme(to: window)
                         window.styleMask.insert(.fullSizeContentView)
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
@@ -37,10 +53,20 @@ struct Killah_PrototypeApp: App {
                         window.titlebarAppearsTransparent = true
                     }
                 }
+                .onChange(of: themeManager.currentTheme) { _, newTheme in
+                    DispatchQueue.main.async {
+                        themeManager.applyTheme(to: NSApplication.shared.windows.first)
+                    }
+                }
         }
         .windowStyle(.automatic)
         .commands {
             MenuCommands()
+        }
+        
+        Settings {
+            SettingsView(modelManager: modelManager)
+                .environmentObject(themeManager)
         }
     }
 }
