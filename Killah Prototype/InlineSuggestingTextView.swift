@@ -710,28 +710,50 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
     
     func setTextAlignment(_ alignment: NSTextAlignment) {
         guard let tv = managedTextView else { return }
-        
-        // 1) Находим текущий параграф
+
         let ns = tv.string as NSString
         let sel = tv.selectedRange
-        let paraRange = ns.paragraphRange(for: NSRange(location: sel.location, length: 0))
+
+        tv.textStorage?.beginEditing()
+
+        if sel.length == 0 {
+            // Только курсор — применить к текущему параграфу
+            let paraRange = ns.paragraphRange(for: sel)
+            let currentPS = (tv.textStorage?.attribute(.paragraphStyle, at: paraRange.location, effectiveRange: nil) as? NSParagraphStyle)?
+                                .mutableCopy() as? NSMutableParagraphStyle
+                            ?? NSMutableParagraphStyle()
+            currentPS.alignment = alignment
+            tv.textStorage?.addAttribute(.paragraphStyle, value: currentPS, range: paraRange)
+        } else {
+            // Есть выделение — применить к каждому параграфу
+            let fullRange = NSRange(location: sel.location, length: sel.length)
+            ns.enumerateSubstrings(in: fullRange, options: .byParagraphs) { _, paragraphRange, _, _ in
+                let currentPS = (tv.textStorage?.attribute(.paragraphStyle, at: paragraphRange.location, effectiveRange: nil) as? NSParagraphStyle)?
+                                    .mutableCopy() as? NSMutableParagraphStyle
+                                ?? NSMutableParagraphStyle()
+                currentPS.alignment = alignment
+                tv.textStorage?.addAttribute(.paragraphStyle, value: currentPS, range: paragraphRange)
+            }
+        }
+
+        tv.textStorage?.endEditing()
+
+        // Обновляем typingAttributes
+        let currentTypingPS = (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?
+                                .mutableCopy() as? NSMutableParagraphStyle
+                              ?? NSMutableParagraphStyle()
+        currentTypingPS.alignment = alignment
+        tv.typingAttributes[.paragraphStyle] = currentTypingPS
         
-        // 2) Готовим новый NSMutableParagraphStyle
-        let currentPS = (tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?
-                            .mutableCopy() as? NSMutableParagraphStyle
-                        ?? NSMutableParagraphStyle()
-        currentPS.alignment = alignment
-        
-        // 3) Применяем к тексту и typingAttributes
-        tv.textStorage?.addAttribute(.paragraphStyle, value: currentPS, range: paraRange)
-        tv.typingAttributes[.paragraphStyle] = currentPS
-        
-        // 4) Обновляем состояние кнопок и каретки
+        tv.selectedRange = tv.selectedRange
+
         DispatchQueue.main.async {
             self.parent.onSelectionChange?()
             self.caretCoordinator?.updateCaretPosition(for: tv)
         }
     }
+
+     
     
     /// Generic helper for line-based operations
     private func modifyLine(_ modifier: (String) -> String) {
