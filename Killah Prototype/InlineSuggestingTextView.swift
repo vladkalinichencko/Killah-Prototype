@@ -790,6 +790,8 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         tv.textStorage?.addAttribute(.paragraphStyle, value: currentPS, range: paraRange)
         tv.typingAttributes[.paragraphStyle] = currentPS
         
+        tv.selectedRange = tv.selectedRange
+        
         // 4) Обновляем состояние кнопок и каретки
         DispatchQueue.main.async {
             self.parent.onSelectionChange?()
