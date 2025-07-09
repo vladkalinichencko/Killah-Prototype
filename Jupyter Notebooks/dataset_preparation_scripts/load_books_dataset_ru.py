@@ -1,56 +1,82 @@
-from datasets import load_dataset
-from huggingface_hub import login
-from transformers import AutoTokenizer
+import os
+import re
 import json
+import chardet
+from pathlib import Path
 
-login("HF_AUTHORIZATION")
+# Папка с .txt файлами
+input_folder = Path(
+    "C:/Users/serma/killah_project/datasets/TextDatasets/BooksDatasets/russian_books")
+output_file = Path(
+    "C:/Users/serma/killah_project/datasets/TextDatasets/BooksDatasets/long_books_ru_cleaned.jsonl")
 
-dataset = load_dataset(
-    "institutional/institutional-books-1.0", split="train", streaming=True)
+# Привязка авторов к названиям (можно расширить)
+AUTHOR_MAP = {
+    "pushkina": "Пушкин",
+    "pushkin": "Пушкин",
+    "dostoevsky": "Достоевский",
+    "dostoevskiy": "Достоевский",
+    "tolstoy": "Толстой",
+    "voina_i_mir": "Толстой",
+}
 
-tokenizer = AutoTokenizer.from_pretrained(
-    "google/gemma-3-4b-pt",
-    token="HF_TOKENIZER"
-)
-
-output_file = "long_books_ru.jsonl"
-min_tokens = 128_000
-saved_count = 0
-max_books = 100
-
-
-def clean_text(text):
-    text = text.replace('\n', ' ').strip()
-    return text
+# Очистка текста по правилам
 
 
-with open(output_file, "w", encoding="utf-8") as f:
-    for example in dataset:
-        if saved_count >= max_books:
-            break
+def clean_text(text: str, top_cut=0.05, bottom_cut=0.05) -> str:
+    # Удаление начала и конца
+    n = len(text)
+    # text = text[int(n * top_cut): int(n * (1 - bottom_cut))]
+    # Символы разрывов, табуляции
+    text = text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+    # Двойные пробелы
+    text = re.sub(r'\s{2,}', ' ', text)
+    # Удаление типографики
+    garbage = [
+        "•", "◊", "◆", "□", "■", "▶", "◦", "▪", "►", "※", "❖",
+        "™", "©", "®", "—", "–", "―", "·", "…", "<<", ">>",
+        "†", "‡", "§", "¶", "~", "¤", "°", "º", "×", "₽", "№"
+    ]
+    for symbol in garbage:
+        text = text.replace(symbol, "")
+    # Удаление символов не из языка (но оставляем .,!? и кавычки)
+    text = re.sub(r"[^\w\sа-яА-ЯёЁ.,!?\"'():;\\/-]", "", text)
+    # Финальная нормализация
+    text = re.sub(r'\s{2,}', ' ', text)
+    return text.strip()
 
-        lang = example.get("language_gen") or example.get("language_src")
-        if lang.lower() not in {"ru", "rus", "russ", "russian"}:
-            continue
 
-        pages = example.get("text_by_page_gen") or example.get(
-            "text_by_page_src")
-        if not pages or not isinstance(pages, list):
-            continue
+# Обработка всех файлов
+with output_file.open("w", encoding="utf-8") as fout:
+    for file_path in input_folder.glob("*.txt"):
+        with file_path.open("rb") as f:
+            raw_data = f.read()
+            result = chardet.detect(raw_data)
+            encoding = result['encoding']
 
-        full_text = " ".join(pages)
-        full_text = clean_text(full_text)
+        with file_path.open("r", encoding=encoding, errors='replace') as f:
+            raw = f.read()
 
-        tokens = tokenizer(full_text, return_attention_mask=False,
-                           return_token_type_ids=False).input_ids
+        cleaned = clean_text(raw)
 
-        if len(tokens) >= min_tokens:
-            json.dump({
-                "title": example.get("title_src", "untitled"),
-                "author": example.get("author_src", "unknown"),
-                "text": full_text
-            }, f, ensure_ascii=False)
-            f.write("\n")
-            saved_count += 1
+        # Определение заголовка
+        title = file_path.stem.replace("_", " ").title()
 
-print(f"🎯 Готово! Сохранено книг: {saved_count}")
+        # Определение автора
+        filename = file_path.stem.lower()
+        author = "Неизвестен"
+        for key in AUTHOR_MAP:
+            if key in filename:
+                author = AUTHOR_MAP[key]
+                break
+
+        # Сохранение строки
+        json.dump({
+            "title": title,
+            "author": author,
+            "text": cleaned
+        }, fout, ensure_ascii=False)
+        fout.write("\n")
+        print(f"✅ Обработано: {title} — {author}")
+
+print(f"\n🎯 Готово! Сохранено книг: {len(list(input_folder.glob('*.txt')))}")
