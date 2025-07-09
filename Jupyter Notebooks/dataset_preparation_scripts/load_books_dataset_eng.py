@@ -1,26 +1,41 @@
+from pathlib import Path
 from datasets import load_dataset
 from huggingface_hub import login
 from transformers import AutoTokenizer
 import json
+import re
 
-login("HF_AUTHORIZATION")
+login("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")
 
 dataset = load_dataset(
     "institutional/institutional-books-1.0", split="train", streaming=True)
 
 tokenizer = AutoTokenizer.from_pretrained(
     "google/gemma-3-4b-pt",
-    token="HF_TOKENIZER"
+    token="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"
 )
 
-output_file = "long_books_eng.jsonl"
-min_tokens = 128_000
+output_file = Path(
+    "C:/Users/serma/killah_project/datasets/TextDatasets/BooksDatasets/long_books_eng_cleaned.jsonl")
+min_tokens = 5000
+max_books = 5000
 saved_count = 0
-max_books = 100
 
 
-def clean_text(text):
-    text = text.replace('\n', ' ').strip()
+def clean_text(text: str, top_cut: float = 0.45, bottom_cut: float = 0.49) -> str:
+    n = len(text)
+    text = text[int(n * top_cut): int(n * (1 - bottom_cut))]
+    text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    text = re.sub(r"\s{2,}", " ", text)
+    typographic_garbage = [
+        "•", "◊", "◆", "□", "■", "▶", "◦", "▪", "►", "※",
+        "™", "©", "®", "—", "–", "―", "·", "…", "<<", ">>",
+        "†", "‡", "§", "¶", "~", "¤", "°", "º", "×"
+    ]
+    for symbol in typographic_garbage:
+        text = text.replace(symbol, "")
+    text = re.sub(r"[^\x00-\x7Fа-яА-ЯёЁ0-9 .,!?\"'():;\\/-]", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
     return text
 
 
@@ -30,7 +45,7 @@ with open(output_file, "w", encoding="utf-8") as f:
             break
 
         lang = example.get("language_gen") or example.get("language_src")
-        if lang.lower() not in {"en", "eng", "english"}:
+        if not lang or lang.lower() not in {"en", "eng", "english"}:
             continue
 
         pages = example.get("text_by_page_gen") or example.get(
@@ -39,16 +54,16 @@ with open(output_file, "w", encoding="utf-8") as f:
             continue
 
         full_text = " ".join(pages)
-        full_text = clean_text(full_text)
+        cleaned_text = clean_text(full_text)
 
-        tokens = tokenizer(full_text, return_attention_mask=False,
+        tokens = tokenizer(cleaned_text, return_attention_mask=False,
                            return_token_type_ids=False).input_ids
 
         if len(tokens) >= min_tokens:
             json.dump({
                 "title": example.get("title_src", "untitled"),
                 "author": example.get("author_src", "unknown"),
-                "text": full_text
+                "text": cleaned_text
             }, f, ensure_ascii=False)
             f.write("\n")
             saved_count += 1
