@@ -39,21 +39,26 @@ class ModelManager: NSObject, ObservableObject {
                 "pytorch_model.bin"
             ]
         ),
-        ModelFile(
-            dirName: "gemma-3-4b-pt-q8bits",
-            repoID: "poinka/gemma-3-4b-pt-q8bits",
-            requiredFiles: [
-                "config.json",
-                "tokenizer.json",
-                "tokenizer.model",
-                "tokenizer_config.json",
-                "special_tokens_map.json",
-                "added_tokens.json",
-                "generation_config.json",
-                "pytorch_model.bin",
-                "model.safetensors",
-                "model.gguf"
-            ]
+//        ModelFile(
+//            dirName: "gemma-3-4b-pt-q8bits",
+//            repoID: "poinka/gemma-3-4b-pt-q8bits",
+//            requiredFiles: [
+//                "config.json",
+//                "tokenizer.json",
+//                "tokenizer.model",
+//                "tokenizer_config.json",
+//                "special_tokens_map.json",
+//                "added_tokens.json",
+//                "generation_config.json",
+//                "pytorch_model.bin",
+//                "model.safetensors",
+//                "model.gguf"
+//            ]
+//        )
+            ModelFile(
+                dirName: "gemma-3-4b-pt-qat-q4_0-gguf",
+                repoID: "google/gemma-3-4b-pt-qat-q4_0-gguf",
+                requiredFiles: ["gemma-3-4b-pt-q4_0.gguf"]
         )
         // Any other models like MLP projectors or LoRA adapters can be added here.
         // If they are single files, they don't need to be zipped.

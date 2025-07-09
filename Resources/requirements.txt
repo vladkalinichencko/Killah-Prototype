@@ -5,3 +5,4 @@ librosa
 torchao
 protobuf
 safetensors>=0.4.3
+llama-cpp-python

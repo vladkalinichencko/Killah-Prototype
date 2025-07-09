@@ -4,22 +4,21 @@ import traceback
 import os
 import select
 import time
-from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig, TextIteratorStreamer
 from typing import List, Optional
 from main_llm import get_model_loader
 from min_p_sampling import MinPLogitsProcessor
-import threading
+from llama_cpp import Llama
+
 
 # Add the script's directory to the Python path to allow local imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
-
 MAX_SUGGESTION_TOKENS = int(os.environ.get("MAX_SUGGESTION_TOKENS", "10"))
 
-def initialize_models():
-    """Initializes and returns the model and tokenizer."""
+def initialize_model():
+    """Initializes and returns the model."""
     try:
         print("Initializing autocomplete models...", file=sys.stderr, flush=True)
         loader = get_model_loader()
@@ -28,135 +27,77 @@ def initialize_models():
             return None, None
         
         model = loader.get_model()
-        tokenizer = loader.get_tokenizer()
 
-        if model and tokenizer:
+        if model:
             print("Autocomplete models initialized successfully.", file=sys.stderr, flush=True)
-            return model, tokenizer
+            return model
         else:
             # The loader itself will print more specific errors.
-            return None, None
+            return None
     except Exception as e:
         print(f"Error during autocomplete model initialization: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
-        return None, None
-
-# Функция для генерации автодополнений
-def generate_suggestions(model, tokenizer, prompt_text: str, max_suggestions: int = 1) -> List[str]:
-    """Generate suggestions using built-in KV caching."""
-    try:
-        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-        
-        generation_config = {
-            "max_new_tokens": MAX_SUGGESTION_TOKENS,
-            "do_sample": True,
-            "temperature": 0.8,
-            "top_k": 50,
-            "top_p": 0.9,
-            "repetition_penalty": 1.2,
-            "num_return_sequences": max_suggestions,
-            "use_cache": True,
-            "return_dict_in_generate": True,
-            "output_attentions": False,
-            "output_hidden_states": False,
-        }
-        
-        outputs = model.generate(**inputs, **generation_config)
-        
-        suggestions = []
-        for output in outputs.sequences:
-            generated_text = tokenizer.decode(output, skip_special_tokens=True)
-            suggestion = generated_text[len(prompt_text):].strip().split("\n")[0]
-            if suggestion and suggestion not in suggestions:
-                suggestions.append(suggestion)
-        
-        return suggestions[:max_suggestions]
-        
-    except Exception as e:
-        print(f"Error during generation: {e}", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
-        return [], None
-        
+        return None
 
 # --- Новый стример токенов ---
-def stream_suggestions(model, tokenizer, prompt_text: str, temperature: float, min_p: float = 0.1):
-    """Stream incremental tokens using built-in KV caching."""
-    try:
-        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-        prompt_token_ids = tokenizer.encode(prompt_text, add_special_tokens=False)
-        streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
+def stream_suggestions(model: Llama, prompt_text: str, temperature: float, min_p: float = 0.1):
+    """Stream incremental tokens using llama_cpp, mimicking TextIteratorStreamer behavior."""
+    # Запускаем генерацию с параметром stream=True
+    response = model.create_completion(
+        prompt=prompt_text,
+        max_tokens=MAX_SUGGESTION_TOKENS,
+        temperature=temperature,
+        min_p=min_p,  # Раскомментировать, если поддерживается API
+        stream=True
+    )
+    
+    # Инициализируем переменные для отслеживания сгенерированного текста
+    generated_so_far = ""
+    prompt_processed = False
+    len_so_far = 0
+    
+    # Итерируемся по кускам ответа
+    for chunk in response:
+        # Предполагаем, что каждый chunk содержит новый текст в 'choices[0]['text']'
+        new_text = chunk['choices'][0]['text']
         
-        logits_processor = [MinPLogitsProcessor(min_p)]
-        
-        generation_kwargs = {
-            **inputs,
-            "max_new_tokens": MAX_SUGGESTION_TOKENS,
-            "do_sample": True,
-            "temperature": temperature,
-            "top_k": 50,
-            "top_p": 0.9,
-            "repetition_penalty": 1.2,
-            "streamer": streamer,
-            "use_cache": True,
-            "return_dict_in_generate": True,
-            "output_attentions": False,
-            "output_hidden_states": False,
-            "logits_processor": logits_processor,
-        }
-                
-        def generate_with_streamer():
-            try:
-                model.generate(**generation_kwargs)
-            except Exception as e:
-                print(f"Error in generate_with_streamer: {e}", file=sys.stderr, flush=True)
-                traceback.print_exc(file=sys.stderr)
-        
-        thread = threading.Thread(target=generate_with_streamer)
-        thread.start()
-        
-        generated_so_far = ""
-        len_so_far = 0
-        prompt_processed = False
-        for text in streamer:
-            # Compute delta
-            delta = text[len(generated_so_far):] if text.startswith(generated_so_far) else text
-            generated_so_far = text
+        # Пропускаем пустые куски
+        if not new_text.strip():
+            continue
 
-            # Skip empty or whitespace-only deltas
-            if not delta.strip():
+        # Проверяем, обработан ли промпт
+        if not prompt_processed:
+            if len_so_far > len(prompt_text):
+                prompt_processed = True
+                delta = new_text[len(prompt_text):]
+                if delta.strip():
+                    yield delta
                 continue
-
-            # Check if we're still processing the prompt
-            if not prompt_processed:
-                # Tokenize the current generated text to compare with prompt tokens
-                generated_token_ids = tokenizer.encode(generated_so_far, add_special_tokens=False)
-                if len_so_far <= len(prompt_token_ids):
-                    # Still within prompt length, skip outputting
-                    len_so_far += len(generated_token_ids)
-                    continue
-                else:
-                    # We've passed the prompt tokens, start outputting
-                    prompt_processed = True
-                    # Output only the part after the prompt
-                    delta = generated_so_far[len(prompt_text):] if generated_so_far.startswith(prompt_text) else delta
-                    if delta.strip():
-                        yield delta
             else:
-                # Output new tokens
-                yield delta
-
-        thread.join()
-        
-    except Exception as e:
-        print(f"Error during streaming generation: {e}", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
+                # Промпт закончился, начинаем выдавать новый текст
+                prompt_processed = True
+                generated_so_far = new_text
+                yield new_text
+        else:
+            # Вычисляем дельту (новую часть текста)
+            if new_text.startswith(generated_so_far):
+                delta = new_text[len(generated_so_far):]
+                generated_so_far = new_text
+                if delta.strip():
+                    yield delta
+            else:
+                # Если структура изменилась, выдаем весь новый текст
+                delta = new_text
+                generated_so_far = new_text
+                if delta.strip():
+                    yield delta
 
 # Основной цикл обработки
 if __name__ == "__main__":
     print("Autocomplete.py main loop started.", file=sys.stderr, flush=True)
     
-    model, tokenizer = initialize_models()
-    if model and tokenizer:
+    model = initialize_model()
+    if model:
         print("READY", flush=True)  # Вывод на stdout
 
     current_prompt = None
@@ -165,10 +106,10 @@ if __name__ == "__main__":
     
     while True:
         try:
-            if not model or not tokenizer:
-                print("Autocomplete models not initialized. Retrying in 5 seconds.", file=sys.stderr, flush=True)
+            if not model:
+                print("Autocomplete model not initialized. Retrying in 5 seconds.", file=sys.stderr, flush=True)
                 time.sleep(5)
-                model, tokenizer = initialize_models()
+                model = initialize_model()
                 continue
 
             readable, _, _ = select.select([sys.stdin], [], [], 0.05)
@@ -204,7 +145,7 @@ if __name__ == "__main__":
 
                 if prompt_to_process:
                     print("Streaming suggestions...", flush=True)
-                    for token in stream_suggestions(model, tokenizer, prompt_to_process, current_temperature):
+                    for token in stream_suggestions(model, prompt_to_process, current_temperature):
                         if interrupted:
                             break
                         print(token, flush=True)
