@@ -32,8 +32,8 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="${PRODUCT_NAME:-Killah Prototype}.app"
 PYTHON_VERSION="3.12"  # По умолчанию, но будет автоопределена позже
 VENV_NAME="venv"
-# URL для скачивания предварительно собранного Python.framework
-PYTHON_FRAMEWORK_URL="https://github.com/python/cpython-bin-deps/releases/download/20231002/cpython-3.12.0%2B20231002-x86_64-apple-darwin-install_only.tar.gz"
+# URL для скачивания официального Python installer (.pkg)
+PYTHON_PKG_URL="https://www.python.org/ftp/python/3.12.9/python-3.12.9-macos11.pkg"
 PYTHON_FRAMEWORK_LOCAL="/Library/Frameworks/Python.framework"
 MODEL_FILE_NAME="gemma-3-4b-pt-q4_0.gguf" # <--- ДОБАВЛЕНО: Имя файла модели
 
@@ -108,49 +108,79 @@ get_python_framework() {
     fi
   else
     echo "⚠️  Локальный Python.framework не найден: $PYTHON_FRAMEWORK_LOCAL"
-    echo "📥 Скачиваем предварительно собранный Python.framework..."
+    echo "📥 Скачиваем официальный Python installer..."
     
     # Создаем временную папку для скачивания
     local temp_dir=$(mktemp -d)
     trap "rm -rf $temp_dir" EXIT
     
-    local archive_path="$temp_dir/python-framework.tar.gz"
+    local pkg_path="$temp_dir/python.pkg"
     
-    echo "🌐 Скачиваем с: $PYTHON_FRAMEWORK_URL"
-    if curl -L -o "$archive_path" "$PYTHON_FRAMEWORK_URL"; then
-      echo "✅ Архив скачан"
+    echo "🌐 Скачиваем с: $PYTHON_PKG_URL"
+    if curl -L -o "$pkg_path" "$PYTHON_PKG_URL"; then
+      echo "✅ Python installer скачан"
       
-      echo "📦 Распаковываем Python.framework..."
+      echo "📦 Распаковываем .pkg файл..."
       cd "$temp_dir"
-      tar -xzf "$archive_path"
       
-      # Ищем Python.framework в распакованном архиве
-      local extracted_framework=$(find . -name "Python.framework" -type d | head -1)
-      if [ -n "$extracted_framework" ]; then
-        echo "📋 Копируем распакованный Python.framework..."
+      # Распаковываем .pkg (это xar архив)
+      if xar -xf "$pkg_path"; then
+        echo "✅ .pkg распакован"
         
-        # Применяем ту же умную логику копирования для скачанного фреймворка
-        if cp -R -L "$extracted_framework" "$RESOURCES_DIR/" 2>/dev/null; then
-          echo "✅ Python.framework из архива скопирован с полным разыменованием ссылок"
-        else
-          echo "⚠️  Не удалось скопировать с разыменованием, пробуем без разыменования..."
-          # Удаляем частично скопированный фреймворк если он есть
-          [ -d "$framework_dst" ] && rm -rf "$framework_dst"
+        # Ищем Payload файл (содержит сжатый архив с файлами)
+        local payload_file=$(find . -name "Payload" -type f | head -1)
+        if [ -n "$payload_file" ]; then
+          echo "📦 Распаковываем Payload..."
           
-          if cp -R -P "$extracted_framework" "$RESOURCES_DIR/" 2>/dev/null; then
-            echo "✅ Python.framework из архива скопирован без разыменования ссылок"
+          # Создаем папку для распаковки Payload
+          mkdir -p payload_extracted
+          cd payload_extracted
+          
+          # Распаковываем Payload (это gzip сжатый tar)
+          if tar -xzf "../$payload_file"; then
+            echo "✅ Payload распакован"
+            
+            # Ищем Python.framework в распакованном содержимом
+            local extracted_framework=$(find . -name "Python.framework" -type d | head -1)
+            if [ -n "$extracted_framework" ]; then
+              echo "📋 Копируем Python.framework из installer..."
+              
+              # Применяем ту же умную логику копирования
+              if cp -R -L "$extracted_framework" "$RESOURCES_DIR/" 2>/dev/null; then
+                echo "✅ Python.framework из installer скопирован с полным разыменованием ссылок"
+              else
+                echo "⚠️  Не удалось скопировать с разыменованием, пробуем без разыменования..."
+                # Удаляем частично скопированный фреймворк если он есть
+                [ -d "$framework_dst" ] && rm -rf "$framework_dst"
+                
+                if cp -R -P "$extracted_framework" "$RESOURCES_DIR/" 2>/dev/null; then
+                  echo "✅ Python.framework из installer скопирован без разыменования ссылок"
+                else
+                  echo "🔄 Используем выборочное копирование..."
+                  manual_copy_framework "$extracted_framework" "$framework_dst"
+                fi
+              fi
+            else
+              echo "❌ Python.framework не найден в installer"
+              echo "💡 Проверьте содержимое Payload: $(find . -type d | head -10)"
+              exit 1
+            fi
           else
-            echo "🔄 Используем выборочное копирование..."
-            manual_copy_framework "$extracted_framework" "$framework_dst"
+            echo "❌ Не удалось распаковать Payload"
+            exit 1
           fi
+        else
+          echo "❌ Payload не найден в .pkg"
+          echo "💡 Доступные файлы: $(find . -type f | head -10)"
+          exit 1
         fi
       else
-        echo "❌ Python.framework не найден в архиве"
+        echo "❌ Не удалось распаковать .pkg файл"
         exit 1
       fi
     else
-      echo "❌ Не удалось скачать Python.framework"
-      echo "💡 Установите Python.framework локально или обновите URL"
+      echo "❌ Не удалось скачать Python installer"
+      echo "💡 Установите Python.framework локально или проверьте интернет-соединение"
       exit 1
     fi
   fi
