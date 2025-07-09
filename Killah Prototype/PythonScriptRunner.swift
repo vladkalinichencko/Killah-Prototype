@@ -6,6 +6,7 @@ protocol PythonScriptRunner {
     var state: LLMEngine.EngineState { get }
     func start()
     func sendData(_ data: String, tokenStreamCallback: @escaping (String) -> Void, onComplete: @escaping (Result<String, LLMEngine.LLMError>) -> Void)
+    func sendCommand(_ command: String)
     func stop()
     func abortSuggestion(notifyPython: Bool)
 }
@@ -65,6 +66,18 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
         }
 
         process.executableURL = URL(fileURLWithPath: venvPythonPath)
+        
+        var env = ProcessInfo.processInfo.environment
+        if let modelDir = modelDirectory {
+            env["MODEL_DIR"] = modelDir
+        }
+        // Force single-threaded execution for compatibility with macOS sandboxing
+        // and to prevent joblib from trying to spawn processes.
+        env["OMP_NUM_THREADS"] = "1"
+        env["TOKENIZERS_PARALLELISM"] = "false"
+        
+        process.environment = env
+        
         process.arguments = [scriptPath]
 
         stdinPipe = Pipe()
@@ -268,7 +281,7 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
 
                     for line in lines where !line.isEmpty {
                         DispatchQueue.main.async {
-                            if self.state == .starting && line == "Entering main processing loop." {
+                            if self.state == .starting && line == "READY" {
                                 print("✅ \(self.scriptName) is ready.")
                                 self.updateState(.running)
                                 self.isAbortedManually = false
@@ -327,6 +340,33 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
         }
         print("🔧 \(scriptName) termination handler setup.")
     }
+    
+    func sendCommand(_ command: String) {
+        guard state == .running else {
+            print("❌ \(scriptName) not running, cannot send command: \(command)")
+            return
+        }
+        guard let stdin = stdinPipe else {
+            print("❌ Stdin pipe not available for \(scriptName)")
+            return
+        }
+        guard let inputData = ("CMD:\(command)\n").data(using: .utf8) else {
+            print("❌ Error encoding command to UTF-8: \(command)")
+            return
+        }
+        let stdinHandle = stdin.fileHandleForWriting
+        do {
+            print("➡️ Sending command to \(scriptName): \"\(command)\"")
+            if #available(macOS 10.15.4, *) {
+                try stdinHandle.write(contentsOf: inputData)
+            } else {
+                stdinHandle.write(inputData)
+            }
+        } catch {
+            print("🫩 Error writing command to \(scriptName) stdin: \(error)")
+        }
+    }
+    
 }
 
 class AudioScriptRunner: BaseScriptRunner {

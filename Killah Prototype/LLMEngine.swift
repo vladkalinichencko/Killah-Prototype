@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CryptoKit // Required for CacheManager's SHA-256 extension
 
 class LLMEngine: ObservableObject {
     @Published var suggestion: String = ""
@@ -36,8 +37,9 @@ class LLMEngine: ObservableObject {
 
     private var runners: [String: PythonScriptRunner] = [:]
     private var cancellables = Set<AnyCancellable>()
-
-    init() {
+    private var currentTemperature: Float = 0.8 // Начальное значение температуры
+    
+    init(modelManager: ModelManager) {
         print("LLMEngine init")
         // Инициализация runner'ов для скриптов
         runners["audio"] = AudioScriptRunner()
@@ -61,6 +63,8 @@ class LLMEngine: ObservableObject {
             updateEngineState(.error("Unknown script: \(script)"))
             return
         }
+        // Invalidate cache when starting engine, as model may change
+        CacheManager.shared.invalidateCache()
         runner.start()
         updateEngineState(runner.state)
     }
@@ -71,17 +75,67 @@ class LLMEngine: ObservableObject {
         tokenStreamCallback: @escaping (String) -> Void,
         onComplete: @escaping (Result<String, LLMError>) -> Void
     ) {
+        // Check cache first
+        if let cachedSuggestion = CacheManager.shared.getCachedSuggestion(for: prompt, temperature: self.currentTemperature) {
+            print("📦 Cache hit for prompt: \"\(prompt)\"")
+            // Split cached suggestion into tokens like in BaseScriptRunner
+            let tokens = cachedSuggestion.components(separatedBy: .newlines).filter { !$0.isEmpty }
+            // Send tokens with a delay to mimic streaming
+            var currentIndex = 0
+            func sendNextToken() {
+                guard currentIndex < tokens.count else {
+                    onComplete(.success(cachedSuggestion))
+                    return
+                }
+                let token = tokens[currentIndex]
+                print("📦 Sending cached token: \"\(token)\"")
+                tokenStreamCallback(token)
+                currentIndex += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    sendNextToken()
+                }
+            }
+            sendNextToken()
+            return
+        }
+        
         guard let runner = runners[script] else {
             print("❌ Unknown script: \(script)")
             onComplete(.failure(.scriptError("Unknown script: \(script)")))
             return
         }
         print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\"")
-        runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback, onComplete: onComplete)
+        runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback,
+            onComplete: { result in
+            switch result {
+            case .success(let suggestion):
+                print("Saving suggestion to cache for prompt \"\(prompt)\"")
+                CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
+                onComplete(.success(suggestion))
+            case .failure(let error):
+                onComplete(.failure(error))
+            }
+        })
         updateEngineState(runner.state)
     }
     
-
+    func sendCommand(_ command: String, for script: String) {
+        guard let runner = runners[script] else {
+            print("❌ Unknown script: \(script)")
+            return
+        }
+        
+        if command == "INCREASE_TEMPERATURE" {
+            currentTemperature = min(currentTemperature + 0.1, 2.0)
+            print("🌡️ Temperature increased to \(currentTemperature)")
+        } else if command == "DECREASE_TEMPERATURE" {
+            currentTemperature = max(currentTemperature - 0.1, 0.1)
+            print("🌡️ Temperature decreased to \(currentTemperature)")
+        }
+        
+        runner.sendCommand(command)
+    }
+    
     func stopEngine(for script: String? = nil) {
         if let script = script, let runner = runners[script] {
             runner.stop()

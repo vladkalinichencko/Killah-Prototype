@@ -47,7 +47,8 @@ struct ContentView: View {
     @Binding var document: TextDocument
     @EnvironmentObject var llmEngine: LLMEngine
     @EnvironmentObject var audioEngine: AudioEngine
-    @State private var debouncer = Debouncer(delay: 0.5)
+    @EnvironmentObject var modelManager: ModelManager
+    @State private var debouncer = Debouncer(delay: 1.0)
     @State private var textFormattingDelegate: TextFormattingDelegate?
     
     @State private var isBoldActive = false
@@ -66,10 +67,24 @@ struct ContentView: View {
         ZStack {
             // Main editor UI
             editorView
+            // Loading indicator overlay
+            VStack {
+                Spacer()
+                LoadingOverlayView()
+                    .opacity(isEngineStarting ? 1 : 0)
+                    .offset(y: isEngineStarting ? 0 : 120)
+                    .animation(.easeInOut(duration: 0.35), value: isEngineStarting)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 20)
+            }
         }
         .onAppear {
             updateToolbarStates()
-            if modelManager.status == .ready {
+            print("🖥️ ContentView.onAppear — model status = \(modelManager.status)")
+            if case .needsDownloading = modelManager.status {
+                // Статус уже говорит, что моделей нет – сразу открываем диалог
+                showModelDownloadSheet = true
+            } else if modelManager.status == .ready {
                 llmEngine.startEngine(for: "autocomplete")
                 llmEngine.startEngine(for: "audio")
             }
@@ -79,12 +94,13 @@ struct ContentView: View {
             modelManager.verifyModels()
         }
         .onChange(of: modelManager.status) { _, newStatus in
+            print("🔄 onChange status -> \(newStatus)")
             switch newStatus {
             case .ready:
                 llmEngine.startEngine(for: "autocomplete")
                 llmEngine.startEngine(for: "audio")
             case .needsDownloading:
-                showDownloadAlert()
+                showModelDownloadSheet = true
                 DispatchQueue.main.async {
                     llmEngine.stopEngine()
                 }
@@ -212,19 +228,11 @@ struct ContentView: View {
         isCenterAlignActive = delegate.isCenterAlignActive()
         isRightAlignActive  = delegate.isRightAlignActive()
     }
-}
 
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        let llmEngine = LLMEngine()
-        let audioEngine = AudioEngine(llmEngine: llmEngine)
-        ContentView(
-            // 1) Binding-заглушка для документа
-            document: .constant(TextDocument())
-        )
-        // 2) Прокидываем оба environmentObject
-        .environmentObject(llmEngine)
-        .environmentObject(audioEngine)
+    // MARK: - Helper
+    private var isEngineStarting: Bool {
+        (llmEngine.getRunnerState(for: "autocomplete") == .starting) ||
+        (llmEngine.getRunnerState(for: "audio") == .starting)
     }
 }
 

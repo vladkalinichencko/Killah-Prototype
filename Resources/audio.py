@@ -36,14 +36,21 @@ def initialize_models():
         print("Initializing audio models...", file=sys.stderr, flush=True)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # Путь к локальной модели внутри ресурсов приложения
-        model_path = os.path.join(os.path.dirname(__file__), "wav2vec2-xls-r-300m")
-        if not os.path.exists(model_path):
-            print(f"Model directory {model_path} does not exist", file=sys.stderr, flush=True)
-            return False
-
-        audio_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
-        audio_encoder = AutoModel.from_pretrained(model_path).to(device)
+        # Get model base path from environment variable, fall back to bundled resources
+        base_model_path = os.environ.get('MODEL_DIR') or os.path.dirname(__file__)
+        model_path = os.path.join(base_model_path, "wav2vec2-xls-r-300m")
+        
+        # Check if critical files exist
+        required_files = ["preprocessor_config.json", "pytorch_model.bin"]
+        if all(os.path.exists(os.path.join(model_path, f)) for f in required_files):
+            audio_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
+            audio_encoder = AutoModel.from_pretrained(model_path).to(device)
+        else:
+            # Пытаемся скачать модель из Hugging Face, если локальная копия отсутствует
+            print(f"Model directory {model_path} does not exist. Downloading from Hugging Face…", file=sys.stderr, flush=True)
+            hf_id = "facebook/wav2vec2-xls-r-300m"
+            audio_extractor = Wav2Vec2FeatureExtractor.from_pretrained(hf_id)
+            audio_encoder = AutoModel.from_pretrained(hf_id).to(device)
         projector = AudioProjector(audio_encoder.config.hidden_size, 2560).to(device)
         print("Audio models initialized successfully", file=sys.stderr, flush=True)
         return True
@@ -84,10 +91,13 @@ def process_audio_file(file_path):
         return None
 
 if __name__ == "__main__":
-    print("Entering main processing loop.", flush=True)
-    if not initialize_models():  # Проверяем успешность инициализации
-        print("Failed to initialize models, exiting.", file=sys.stderr, flush=True)
-        sys.exit(1)
+    print("Audio.py main loop started.", file=sys.stderr, flush=True)
+    
+    models_initialized = initialize_models()
+    
+    if models_initialized:
+        print("READY", flush=True)  # Вывод на stdout
+    
     while True:
         try:
             file_path = sys.stdin.readline().strip()

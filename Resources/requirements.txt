@@ -3,3 +3,6 @@ transformers
 accelerate
 llama-cpp-python
 librosa
+torchao
+protobuf
+safetensors>=0.4.3

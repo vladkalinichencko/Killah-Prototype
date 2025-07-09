@@ -49,7 +49,7 @@ struct ModelDownloadView: View {
 }
 
 extension ModelManager.ModelFile: Identifiable {
-    var id: String { name }
+    var id: String { dirName }
 }
 
 struct ModelDownloadView_Previews: PreviewProvider {

@@ -381,28 +381,45 @@ class Coordinator: NSObject, NSTextViewDelegate {
         }
         
         func requestTextCompletion(for textView: CustomInlineNSTextView) {
-            let currentPromptForLLM = textView.committedText()
-            guard !currentPromptForLLM.isEmpty else {
+            // Извлекаем текст до позиции курсора
+            let cursorPosition = textView.selectedRange.location
+            let fullText = textView.committedText()
+            let safeCursorPosition = min(cursorPosition, fullText.utf16.count)
+            let endIndex = fullText.index(fullText.startIndex, offsetBy: safeCursorPosition, limitedBy: fullText.endIndex) ?? fullText.endIndex
+            let currentPromptForLLM = String(fullText[..<endIndex])
+            
+            print("Cursor position: \(cursorPosition), text length: \(fullText.utf16.count)")
+            
+            // Проверяем, пустой ли промпт
+            if currentPromptForLLM.isEmpty {
                 print("💤 requestTextCompletion: prompt is empty, skipping")
                 textView.clearGhostText()
                 llmEngine.abortSuggestion(for: "autocomplete")
                 return
             }
-            print("✨ requestTextCompletion: sending prompt length \(currentPromptForLLM.count)")
             
+            // Запускаем запрос только если движок реально работает
+            guard llmEngine.getRunnerState(for: "autocomplete") == .running else {
+                print("💤 LLM engine not running, skip completion request")
+                return
+            }
+
+            print("✨ requestTextCompletion: sending prompt length \(currentPromptForLLM.count) at cursor position \(cursorPosition)")
+
             if textView.ghostText() != nil {
                 textView.clearGhostText()
             }
+
+            // Помечаем начало генерации
+            caretCoordinator?.isGenerating = true
 
             llmEngine.generateSuggestion(
                 for: "autocomplete",
                 prompt: currentPromptForLLM) { [weak self, weak textView] token in
                 DispatchQueue.main.async {
                     textView?.appendGhostTextToken(token)
-                    // Trigger caret effect for each suggestion token
-                    self?.caretCoordinator?.triggerCaretEffect = true
                 }
-            } onComplete: { [weak textView] result in
+            } onComplete: { [weak textView, weak self] result in
                 DispatchQueue.main.async {
                     guard let textView = textView else { return }
                     switch result {
@@ -416,6 +433,8 @@ class Coordinator: NSObject, NSTextViewDelegate {
                             textView.clearGhostText()
                         }
                     }
+                    // Готово или прервано — сбрасываем флаг генерации
+                    self?.caretCoordinator?.isGenerating = false
                 }
             }
         }
@@ -500,6 +519,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
         private func clearAllCompletions(for textView: CustomInlineNSTextView) {
             textView.clearGhostText()
             parent.debouncer.cancel()
+            caretCoordinator?.isGenerating = false
         }
         
         func updateCaret() {
@@ -773,6 +793,8 @@ extension InlineSuggestingTextView.Coordinator: TextFormattingDelegate {
         tv.textStorage?.addAttribute(.paragraphStyle, value: currentPS, range: paraRange)
         tv.typingAttributes[.paragraphStyle] = currentPS
         
+        tv.selectedRange = tv.selectedRange
+        
         // 4) Обновляем состояние кнопок и каретки
         DispatchQueue.main.async {
             self.parent.onSelectionChange?()
@@ -922,8 +944,8 @@ class CustomInlineNSTextView: NSTextView {
     private var lastCommittedTextForChangeDetection: String = ""
     var lastMouseUpCharIndex: Int? = nil
 
-    private var animatedGhostTextLayer: CATextLayer?
-    private var animatedGhostTextMask: CAGradientLayer?
+    // Timestamp для адаптивной длительности анимации
+    private var lastTokenAnimationTime: CFTimeInterval = 0
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -952,8 +974,6 @@ class CustomInlineNSTextView: NSTextView {
             self.autoresizingMask = [.width]
         }
         self.lastCommittedTextForChangeDetection = self.string
-
-        setupAnimatedGhostLayer()
     }
     
     convenience override init(frame frameRect: NSRect) {
@@ -1076,11 +1096,12 @@ class CustomInlineNSTextView: NSTextView {
             llmInteractionDelegate?.dismissSuggestion()
             return
         }
-        // Handle Cmd+Right and Cmd+Left for custom completions/animations
+        // Handle Cmd+Right and Cmd+Left for next suggestion with higher temperature and for previous suggestion
         if event.modifierFlags.contains(.command) {
             if event.keyCode == KeyCodes.rightArrow {
                 // Cmd+Right: regenerate suggestion, trigger bounce right
                 if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                    coordinator.llmEngine.sendCommand("INCREASE_TEMPERATURE", for: "autocomplete")
                     self.clearGhostText()
                     coordinator.caretCoordinator?.triggerBounceRight = true
                     coordinator.parent.debouncer.debounce { [weak coordinator, weak self] in
@@ -1092,6 +1113,7 @@ class CustomInlineNSTextView: NSTextView {
             } else if event.keyCode == KeyCodes.leftArrow {
                 // Cmd+Left: regenerate suggestion, trigger bounce left
                 if let coordinator = delegate as? InlineSuggestingTextView.Coordinator {
+                    coordinator.llmEngine.sendCommand("DECREASE_TEMPERATURE", for: "autocomplete")
                     self.clearGhostText()
                     coordinator.caretCoordinator?.triggerBounceLeft = true
                     coordinator.parent.debouncer.debounce { [weak coordinator, weak self] in
@@ -1123,7 +1145,6 @@ class CustomInlineNSTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         notifyDelegate()
-        updateAnimatedGhostLayer(isAnimating: false)
     }
 
     func didCommittedTextChangeByUser(newCommittedText: String, previousCommittedText: String) -> Bool {
@@ -1158,99 +1179,22 @@ class CustomInlineNSTextView: NSTextView {
         return false
     }
 
-    private func setupAnimatedGhostLayer() {
-        wantsLayer = true
-
-        animatedGhostTextLayer = CATextLayer()
-        animatedGhostTextLayer?.contentsScale = window?.backingScaleFactor ?? 2.0
-        animatedGhostTextLayer?.isHidden = true
-        layer?.addSublayer(animatedGhostTextLayer!)
-
-        animatedGhostTextMask = CAGradientLayer()
-        animatedGhostTextMask?.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        animatedGhostTextMask?.locations = [0, 0.01, 0.99, 1]
-        animatedGhostTextMask?.startPoint = CGPoint(x: 0, y: 0.5)
-        animatedGhostTextMask?.endPoint = CGPoint(x: 1, y: 0.5)
-
-        animatedGhostTextLayer?.mask = animatedGhostTextMask
-    }
-
-    private func updateAnimatedGhostLayer(isAnimating: Bool) {
-        guard let ghostRange = currentGhostTextRange, ghostRange.length > 0,
-              let ghostText = self.ghostText(),
-              let layoutManager = self.layoutManager,
-              let textContainer = self.textContainer else {
-            animatedGhostTextLayer?.isHidden = true
-            return
-        }
-
-        let glyphRange = layoutManager.glyphRange(forCharacterRange: ghostRange, actualCharacterRange: nil)
-        var textRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        
-        // Adjust for text container insets
-        textRect.origin.x += self.textContainerOrigin.x
-        textRect.origin.y += self.textContainerOrigin.y
-
-        // Create gradient text
-        let gradient = NSGradient(colors: [NSColor.red, NSColor.systemPink])!
-        let attributedString = NSAttributedString(string: ghostText, attributes: [
-            .font: self.font ?? NSFont.systemFont(ofSize: 16),
-            .foregroundColor: NSColor.clear // This color is a placeholder, gradient is drawn over it
-        ])
-        
-        let textImage = NSImage(size: textRect.size, flipped: false) { rect in
-            gradient.draw(in: rect, angle: 0)
-            return true
-        }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        animatedGhostTextLayer?.frame = textRect
-        animatedGhostTextLayer?.string = attributedString
-        animatedGhostTextLayer?.font = self.font
-        animatedGhostTextLayer?.fontSize = self.font?.pointSize ?? 16
-        animatedGhostTextLayer?.isHidden = false
-        animatedGhostTextMask?.frame = animatedGhostTextLayer?.bounds ?? .zero
-        
-        let maskLayer = CALayer()
-        maskLayer.frame = textRect
-        maskLayer.backgroundColor = NSColor.black.cgColor
-        
-        let gradientImageLayer = CALayer()
-        gradientImageLayer.frame = maskLayer.bounds
-        gradientImageLayer.contents = textImage
-        
-        maskLayer.addSublayer(gradientImageLayer)
-        
-        // This part is tricky. The best way is to render the text into an image and use that as the contents.
-        // For simplicity in this step, let's just color it. A true gradient requires more drawing code.
-        let gradientColor = NSColor(gradient: gradient, with: textRect.size)!
-        animatedGhostTextLayer?.foregroundColor = gradientColor.cgColor
-
-
-        CATransaction.commit()
-
-        if isAnimating {
-            animatedGhostTextMask?.removeAnimation(forKey: "revealAnimation")
-            let animation = CABasicAnimation(keyPath: "locations")
-            animation.fromValue = [0, 0, 0, 0]
-            animation.toValue = [0, 0.4, 0.6, 1]
-            animation.duration = 0.4
-            animation.isRemovedOnCompletion = false
-            animation.fillMode = .forwards
-            animatedGhostTextMask?.add(animation, forKey: "revealAnimation")
-        }
-    }
-
     func appendGhostTextToken(_ token: String) {
         guard let ts = self.textStorage, !token.isEmpty else { return }
 
-        print("👻 Appending ghost token: \(token)")
+        var startingNewGhost = (currentGhostTextRange == nil)
+
+        var cleanedToken = token
+        if startingNewGhost {
+            cleanedToken = String(token.drop(while: { $0 == " " || $0 == "\t" }))
+        }
+
+        print("👻 Appending ghost token: \(cleanedToken)")
 
         ts.beginEditing()
         let attributes: [NSAttributedString.Key: Any] = [
             .isGhostText: true,
-            .foregroundColor: NSColor.clear, // Make original ghost text invisible
+            .foregroundColor: NSColor.gray.withAlphaComponent(0),
             .font: self.font ?? NSFont.systemFont(ofSize: 16)
         ]
         
@@ -1270,14 +1214,14 @@ class CustomInlineNSTextView: NSTextView {
                     ts.endEditing()
                     return
                 }
-                ts.insert(NSAttributedString(string: token, attributes: attributes), at: appendLocation)
-                currentGhostTextRange = NSRange(location: existingRange.location, length: existingRange.length + token.utf16.count)
+                ts.insert(NSAttributedString(string: cleanedToken, attributes: attributes), at: appendLocation)
+                currentGhostTextRange = NSRange(location: existingRange.location, length: existingRange.length + cleanedToken.utf16.count)
             }
         }
         
         if currentGhostTextRange == nil {
-            ts.insert(NSAttributedString(string: token, attributes: attributes), at: insertionPointForNewSuggestion)
-            currentGhostTextRange = NSRange(location: insertionPointForNewSuggestion, length: token.utf16.count)
+            ts.insert(NSAttributedString(string: cleanedToken, attributes: attributes), at: insertionPointForNewSuggestion)
+            currentGhostTextRange = NSRange(location: insertionPointForNewSuggestion, length: (cleanedToken as NSString).length)
         }
         ts.endEditing()
         
@@ -1286,7 +1230,15 @@ class CustomInlineNSTextView: NSTextView {
             self.scrollRangeToVisible(finalGhostRange)
         }
         self.typingAttributes[.foregroundColor] = NSColor.textColor
-        updateAnimatedGhostLayer(isAnimating: true)
+
+        // Новая анимация
+        if let finalGhostRange = currentGhostTextRange {
+            let tokenRange = NSRange(
+                location: NSMaxRange(finalGhostRange) - (cleanedToken as NSString).length,
+                length: (cleanedToken as NSString).length
+            )
+            animateTokenAppearance(in: tokenRange)
+        }
     }
 
     func clearGhostText() {
@@ -1302,7 +1254,6 @@ class CustomInlineNSTextView: NSTextView {
             ts.endEditing()
         }
         currentGhostTextRange = nil
-        updateAnimatedGhostLayer(isAnimating: false)
     }
 
     func acceptGhostText() {
@@ -1322,7 +1273,6 @@ class CustomInlineNSTextView: NSTextView {
             self.lastCommittedTextForChangeDetection = ts.string
         }
         currentGhostTextRange = nil
-        updateAnimatedGhostLayer(isAnimating: false)
     }
     
     func consumeGhostText(length: Int) {
@@ -1360,12 +1310,78 @@ class CustomInlineNSTextView: NSTextView {
         } else {
             acceptGhostText()
         }
-        updateAnimatedGhostLayer(isAnimating: false)
+    }
+
+    private func animateTokenAppearance(in range: NSRange) {
+        guard let layoutManager = self.layoutManager,
+              let textContainer = self.textContainer,
+              let textStorage = self.textStorage else { return }
+
+        layoutManager.ensureLayout(for: textContainer)
+
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        var tokenRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        tokenRect.origin.x += self.textContainerOrigin.x
+        tokenRect.origin.y += self.textContainerOrigin.y
+
+        // Берём реальные атрибуты токена, чтобы сохранить шрифт/стиль
+        let attributedToken = NSMutableAttributedString(attributedString: textStorage.attributedSubstring(from: range))
+        attributedToken.addAttribute(.foregroundColor, value: NSColor.gray, range: NSRange(location: 0, length: attributedToken.length))
+
+        // 1. Создаём временный слой для анимации
+        let animatedLayer = CATextLayer()
+        animatedLayer.frame = tokenRect
+        animatedLayer.string = attributedToken
+        animatedLayer.contentsScale = self.window?.backingScaleFactor ?? 2.0
+        animatedLayer.isWrapped = false
+        animatedLayer.alignmentMode = .left
+        self.layer?.addSublayer(animatedLayer)
+
+        // 2. Создаём простую прямоугольную маску, ширина = 0, затем анимируем до полной ширины
+        let maskLayer = CALayer()
+        maskLayer.backgroundColor = NSColor.black.cgColor // black = видимый текст
+        maskLayer.frame = CGRect(origin: .zero, size: CGSize(width: 0, height: animatedLayer.bounds.height))
+        animatedLayer.mask = maskLayer
+
+        // 3. Анимируем ширину маски
+        let anim = CABasicAnimation(keyPath: "bounds.size.width")
+        anim.fromValue = 0
+        anim.toValue = animatedLayer.bounds.width
+
+        // Адаптивная длительность: быстрее, если токены приходят чаще
+        let now = CACurrentMediaTime()
+        let gap = now - lastTokenAnimationTime
+        var duration = 0.35
+        if lastTokenAnimationTime > 0 {
+            // чем короче пауза, тем короче анимация, чтобы она не наслаивалась
+            duration = max(0.12, min(0.4, gap * 1.5))
+        }
+        lastTokenAnimationTime = now
+        anim.duration = duration
+        anim.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        anim.isRemovedOnCompletion = false
+        anim.fillMode = .forwards
+
+        // 4. По завершении удаляем слой и показываем постоянный текст
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            // Безопасно проверяем диапазон перед изменением атрибутов
+            let length = textStorage.length
+            if range.location < length {
+                let safeLen = min(range.length, length - range.location)
+                if safeLen > 0 {
+                    let safeRange = NSRange(location: range.location, length: safeLen)
+                    textStorage.addAttribute(.foregroundColor, value: NSColor.gray, range: safeRange)
+                }
+            }
+            animatedLayer.removeFromSuperlayer()
+        }
+        maskLayer.add(anim, forKey: "revealWidth")
+        CATransaction.commit()
     }
 
     override func layout() {
         super.layout()
-        updateAnimatedGhostLayer(isAnimating: false)
     }
 }
 
