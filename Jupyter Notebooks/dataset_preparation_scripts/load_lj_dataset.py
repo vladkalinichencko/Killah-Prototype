@@ -5,14 +5,35 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-USERS = ["feruza", "wolfox", "chingizid", "izubr", "tanyant", "volha", "haez", "tema"]
+USERS = ["feruza",
+         "wolfox",
+         "chingizid",
+         "izubr",
+         "tanyant",
+         "volha",
+         "haez",
+         "marussia",
+         "mantrabox",
+         "borisakunin",
+         "dr_piliulkin",
+         "dglu",
+         "bagirov",
+         "zorich",
+         "sv_loginow",
+         "exler",
+         "divov",
+         "vadim_panov",
+         "mumi_mapa",
+         "red_atomic_tank",
+         "tema"]
 START_YEAR = 2020
 END_YEAR = 2024
-MIN_LENGTH = 1000
+MIN_LENGTH = 250
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
+
 
 def get_month_urls(username):
     urls = []
@@ -22,10 +43,12 @@ def get_month_urls(username):
             urls.append(url)
     return urls
 
+
 def extract_post_links(archive_html, username):
     soup = BeautifulSoup(archive_html, "html.parser")
     return list(set(a['href'] for a in soup.find_all("a", href=True)
                     if a['href'].startswith(f"https://{username}.livejournal.com") and a['href'].endswith(".html")))
+
 
 def parse_post(url, username):
     try:
@@ -48,7 +71,8 @@ def parse_post(url, username):
         # Дата поста (по URL)
         try:
             date_str = url.split("/")[-3:-1]
-            date = datetime.strptime("-".join(date_str), "%Y-%m").strftime("%Y-%m")
+            date = datetime.strptime(
+                "-".join(date_str), "%Y-%m").strftime("%Y-%m")
         except Exception:
             date = ""
 
@@ -64,9 +88,11 @@ def parse_post(url, username):
         print(f"❌ Ошибка парсинга поста: {url}\n→ {e}")
         return None
 
+
 def main():
     for username in USERS:
-        OUTPUT_FILE = Path(f"C:/Users/serma/killah_project/datasets/TextDatasets/LJDatasets/{username}_lj_posts.jsonl")
+        OUTPUT_FILE = Path(
+            f"C:/Users/serma/killah_project/datasets/TextDatasets/LJDatasets/{username}_lj_posts.jsonl")
         total_saved = 0
         with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
             for month_url in get_month_urls(username):
@@ -79,9 +105,11 @@ def main():
                     for post_url in post_urls:
                         post = parse_post(post_url, username)
                         if post:
-                            out.write(json.dumps(post, ensure_ascii=False) + "\n")
+                            out.write(json.dumps(
+                                post, ensure_ascii=False) + "\n")
                             total_saved += 1
-                            print(f"    ✅ Сохранён: {post['title'][:50]}... ({len(post['text'])} символов)")
+                            print(
+                                f"    ✅ Сохранён: {post['title'][:50]}... ({len(post['text'])} символов)")
 
                         time.sleep(1)
 
@@ -89,7 +117,9 @@ def main():
                     print(f"⚠️ Ошибка чтения архива: {month_url} — {e}")
                     continue
 
-        print(f"\n🎯 Завершено для пользователя {username}! Всего сохранено постов: {total_saved}")
+        print(
+            f"\n🎯 Завершено для пользователя {username}! Всего сохранено постов: {total_saved}")
+
 
 if __name__ == "__main__":
     main()
