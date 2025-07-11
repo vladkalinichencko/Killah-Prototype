@@ -1,12 +1,6 @@
-//
-//  Killah_PrototypeApp.swift
-//  Killah Prototype
-//
-//  Created by Владислав Калиниченко on 03.05.2025.
-//
-
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @main
 struct Killah_PrototypeApp: App {
@@ -14,24 +8,30 @@ struct Killah_PrototypeApp: App {
     @StateObject private var audioEngine: AudioEngine
     @StateObject private var modelManager: ModelManager
     @StateObject private var themeManager: ThemeManager
-    
+
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     init() {
-        // Correct initialization: Create all dependencies first.
         let createdModelManager = ModelManager()
         let createdThemeManager = ThemeManager()
         let createdLlmEngine = LLMEngine(modelManager: createdModelManager)
         let createdAudioEngine = AudioEngine(llmEngine: createdLlmEngine)
 
-        // Then, assign them to the StateObject wrappers.
         _modelManager = StateObject(wrappedValue: createdModelManager)
         _themeManager = StateObject(wrappedValue: createdThemeManager)
         _llmEngine = StateObject(wrappedValue: createdLlmEngine)
         _audioEngine = StateObject(wrappedValue: createdAudioEngine)
-        
-        // Trigger immediate verification so the UI knows whether models are present.
+
         createdModelManager.verifyModels()
+
+        AppDelegate.dependencies = .init(
+            llmEngine: createdLlmEngine,
+            audioEngine: createdAudioEngine,
+            themeManager: createdThemeManager,
+            modelManager: createdModelManager
+        )
     }
-    
+
     var body: some Scene {
         DocumentGroup(newDocument: TextDocument()) { file in
             ContentView(document: file.$document)
@@ -43,14 +43,16 @@ struct Killah_PrototypeApp: App {
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .onAppear {
                     if let window = NSApplication.shared.windows.first {
-                        themeManager.applyTheme(to: window)
-                        window.styleMask.insert(.fullSizeContentView)
-                        window.titlebarSeparatorStyle = .none
-                        window.isMovableByWindowBackground = true
-                        window.backgroundColor = .clear
-                        window.isOpaque = false
-                        window.hasShadow = true
-                        window.titlebarAppearsTransparent = true
+                        if window.title != "Welcome" {
+                            themeManager.applyTheme(to: window)
+                            window.styleMask.insert(.fullSizeContentView)
+                            window.titlebarSeparatorStyle = .none
+                            window.isMovableByWindowBackground = true
+                            window.backgroundColor = .clear
+                            window.isOpaque = false
+                            window.hasShadow = true
+                            window.titlebarAppearsTransparent = true
+                        }
                     }
                 }
                 .onChange(of: themeManager.currentTheme) { _, newTheme in
@@ -63,7 +65,9 @@ struct Killah_PrototypeApp: App {
         .commands {
             MenuCommands()
         }
-        
+
+
+
         Settings {
             SettingsView(modelManager: modelManager)
                 .environmentObject(themeManager)
@@ -71,12 +75,10 @@ struct Killah_PrototypeApp: App {
     }
 }
 
-// Removed AppDelegate; lifecycle handled by DocumentGroup
 
-// Simplified MenuCommands: override only About and Format
+// Menu Commands
 struct MenuCommands: Commands {
     var body: some Commands {
-        // About menu
         CommandGroup(replacing: .appInfo) {
             Button("About Killah") {
                 let alert = NSAlert()
