@@ -167,7 +167,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "set -e\necho \"🚀 Starting Package Python script\"\necho \"BUILT_PRODUCTS_DIR: $BUILT_PRODUCTS_DIR\"\necho \"PRODUCT_NAME: $PRODUCT_NAME\"\nbash \"${SRCROOT}/Scripts/package_app_simple.sh\"\necho \"✅ Package Python script completed\"\n";
+			shellScript = "set -e\necho \"🚀 Starting Package Python script\"\necho \"BUILT_PRODUCTS_DIR: $BUILT_PRODUCTS_DIR\"\necho \"PRODUCT_NAME: $PRODUCT_NAME\"\nbash \"${SRCROOT}/Scripts/package_app.sh\"\necho \"✅ Package Python script completed\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

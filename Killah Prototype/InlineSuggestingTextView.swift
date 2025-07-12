@@ -432,7 +432,7 @@ class Coordinator: NSObject, NSTextViewDelegate {
 
             llmEngine.generateSuggestion(
                 for: "autocomplete",
-                prompt: currentPromptForLLM) { [weak self, weak textView] token in
+                prompt: currentPromptForLLM) { [weak textView] token in
                 DispatchQueue.main.async {
                     textView?.appendGhostTextToken(token)
                 }
@@ -1181,7 +1181,7 @@ class CustomInlineNSTextView: NSTextView {
     func appendGhostTextToken(_ token: String) {
         guard let ts = self.textStorage, !token.isEmpty else { return }
 
-        var startingNewGhost = (currentGhostTextRange == nil)
+        let startingNewGhost = (currentGhostTextRange == nil)
 
         var cleanedToken = token
         if startingNewGhost {
