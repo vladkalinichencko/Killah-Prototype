@@ -34,6 +34,7 @@ from torch.cuda.amp import GradScaler
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import wandb
+from sklearn.manifold import TSNE  # NEW: t-SNE for embedding visualization
 from sklearn.model_selection import train_test_split
 import jiwer
 import random
@@ -105,6 +106,8 @@ class TrainingConfig:
     cosine_sim_weight: float = 0.2
     # MSE regularization
     proj_mse_weight: float = 0.1
+    # NEW: Debug flag to train on a single sample and log detailed diagnostics
+    debug_overfit: bool = False
 
 # ----------------------------
 # 1.  Audio -> LLM Bridge
@@ -519,6 +522,11 @@ def train(config: TrainingConfig, stage: int):
     
     train_data, val_data = train_test_split(data, test_size=config.val_test_size, random_state=42)
     print(f"Data split: {len(train_data)} training, {len(val_data)} validation.")
+    # --- Debug overfit: keep only one sample ---
+    if getattr(config, "debug_overfit", False):
+        train_data = train_data[:1]
+        val_data = train_data
+        print("Debug overfit mode enabled: using a single training sample.")
 
     train_dataset = AudioTextDataset(train_data, processor, tokenizer, config.zip_path)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0, pin_memory=True)
@@ -659,13 +667,8 @@ def train(config: TrainingConfig, stage: int):
             target_ids = batch['target_ids'].to(device)
 
             with autocast(device_type="cuda", dtype=dtype, enabled=torch.cuda.is_available()):
-                # --- Feature Normalization ---
-                mean = input_values.mean(dim=-1, keepdim=True)
-                std = input_values.std(dim=-1, keepdim=True)
-                input_values_normalized = (input_values - mean) / (std + 1e-6)
-
-                # 1. Get audio embeddings -> downsample -> project
-                audio_embeds_raw = speech_encoder(input_values_normalized).last_hidden_state
+                # --- No extra normalization (Whisper already normalized) ---
+                audio_embeds_raw = speech_encoder(input_values).last_hidden_state
                 audio_embeds_ds = downsample_and_concat(audio_embeds_raw, config.downsample_k)
                 projected_embeds = projector(audio_embeds_ds.to(torch.float32))
 
@@ -676,6 +679,41 @@ def train(config: TrainingConfig, stage: int):
                 # --- Cosine Similarity Metric & Loss ---
                 cosine_sim = F.cosine_similarity(projected_embeds, quantized_embeds, dim=-1).mean()
                 cosine_sim_metric = cosine_sim.detach().item()
+
+                # --- Logging to W&B: t-SNE + sample transcription ---
+                if wandb.run and not wandb.run.disabled:
+                    try:
+                        # 1. t-SNE of first sample (audio vs text)
+                        first_proj = projected_embeds[0].to(torch.float32).detach().cpu().numpy()
+                        first_text = target_embeds[0].to(torch.float32).detach().cpu().numpy()
+                        comb = np.concatenate([first_proj, first_text], axis=0)
+                        labels_tsne = ["audio"] * first_proj.shape[0] + ["text"] * first_text.shape[0]
+                        tsne = TSNE(n_components=2, perplexity=30, n_iter=250, metric='cosine', random_state=0)
+                        coords = tsne.fit_transform(comb)
+                        tsne_table = wandb.Table(columns=["step", "type", "x", "y"])
+                        for (x, y), lbl in zip(coords, labels_tsne):
+                            tsne_table.add_data(global_step, lbl, float(x), float(y))
+                        wandb.log({"tsne_embeddings": tsne_table}, step=global_step)
+
+                        # 2. Simple generation for first sample
+                        gen_prompt = torch.cat([
+                            prompt_embeds['user'].unsqueeze(0),
+                            quantized_embeds[0:1],
+                            prompt_embeds['assistant'].unsqueeze(0)
+                        ], dim=1)
+                        gen_ids = llm.generate(
+                            inputs_embeds=gen_prompt.to(dtype),
+                            max_new_tokens=config.max_new_tokens,
+                            num_beams=1,
+                            eos_token_id=tokenizer.eos_token_id,
+                            pad_token_id=tokenizer.pad_token_id,
+                        )
+                        gen_text = tokenizer.decode(gen_ids[0][gen_prompt.size(1):], skip_special_tokens=True)
+                        target_text = tokenizer.decode([tid for tid in target_ids[0] if tid != -100], skip_special_tokens=True)
+                        wandb.log({"sample/target": target_text, "sample/generated": gen_text}, step=global_step)
+                        pbar.write(f"TARGET: {target_text} | GENERATED: {gen_text}")
+                    except Exception as e:
+                        pbar.write(f"W&B logging failed: {e}")
 
                 # 3. Prepare for LLM
                 target_embeds = llm.get_input_embeddings()(target_ids.clamp(min=0))
@@ -708,12 +746,13 @@ def train(config: TrainingConfig, stage: int):
 
                 # Regularizations
                 proj_mse_loss = F.mse_loss(projected_embeds, quantized_embeds.detach())
-                loss = (
-                    loss +
-                    config.diversity_weight * diversity_loss +
-                    config.cosine_sim_weight * (1.0 - cosine_sim) +
-                    config.proj_mse_weight * proj_mse_loss
-                )
+                # --- Additional losses disabled for Stage 1 overfit experiment ---
+                # loss = (
+                #     loss +
+                #     config.diversity_weight * diversity_loss +
+                #     config.cosine_sim_weight * (1.0 - cosine_sim) +
+                #     config.proj_mse_weight * proj_mse_loss
+                # )
 
             if torch.isnan(loss):
                 print(f"Warning: NaN loss detected at step {global_step}. Skipping step.")
@@ -848,7 +887,7 @@ def train(config: TrainingConfig, stage: int):
 # ----------------------------
 if __name__ == "__main__":
     # --- CHOOSE STAGE ---
-    STAGE = 2 # or 2
+    STAGE = 1  # ← run Stage 1 for overfit test
     # --------------------
 
     config = TrainingConfig()
@@ -857,6 +896,7 @@ if __name__ == "__main__":
     if STAGE == 1:
         # Effective batch size of 32
         config.gradient_accumulation_steps = 32 // config.batch_size_stage1
+        config.debug_overfit = True  # NEW: enable single-sample overfit mode
     elif STAGE == 2:
         # Effective batch size of 16
         config.gradient_accumulation_steps = 16 // config.batch_size_stage2
