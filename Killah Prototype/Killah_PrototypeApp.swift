@@ -47,12 +47,16 @@ struct Killah_PrototypeApp: App {
                     if let window = NSApplication.shared.windows.first(where: { $0.title == "Welcome" }) {
                         window.title = "Welcome"
                         themeManager.applyTheme(to: window)
-                        // window.styleMask.insert(.fullSizeContentView) // УБРАНО для Welcome окна
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
                         window.backgroundColor = NSColor.windowBackgroundColor
                         window.isOpaque = true
                         window.hasShadow = true
+                    }
+                }
+                .onChange(of: themeManager.currentTheme) { _ in
+                    if let window = NSApplication.shared.windows.first(where: { $0.title == "Welcome" }) {
+                        themeManager.applyTheme(to: window)
                     }
                 }
         }
@@ -85,6 +89,11 @@ struct Killah_PrototypeApp: App {
                         window.center()
                     }
                 }
+                .onChange(of: themeManager.currentTheme) { _ in
+                    if let window = NSApplication.shared.windows.first {
+                        themeManager.applyTheme(to: window)
+                    }
+                }
         }
         .handlesExternalEvents(matching: Set(arrayLiteral: "document"))
         #else
@@ -99,19 +108,7 @@ struct Killah_PrototypeApp: App {
                     .environmentObject(appState)
                     .containerBackground(.regularMaterial, for: .window)
                     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-                    .onAppear {
-                        if let window = NSApplication.shared.windows.first {
-                            window.title = "Welcome"
-                            themeManager.applyTheme(to: window)
-                            window.styleMask.insert(.fullSizeContentView)
-                            window.titlebarSeparatorStyle = .none
-                            window.isMovableByWindowBackground = true
-                            window.backgroundColor = .clear
-                            window.isOpaque = false
-                            window.hasShadow = true
-                            window.titlebarAppearsTransparent = true
-                        }
-                    }
+                    .preferredColorScheme(themeManager.colorScheme)
             } else {
                 ForEach(appState.openDocuments.indices, id: \.self) { index in
                     ContentView(document: Binding(
@@ -125,21 +122,7 @@ struct Killah_PrototypeApp: App {
                     .environmentObject(appState)
                     .containerBackground(.regularMaterial, for: .window)
                     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-                    .onAppear {
-                        if let window = NSApplication.shared.windows.first {
-                            window.title = "Untitled"
-                            themeManager.applyTheme(to: window)
-                            window.styleMask.insert(.fullSizeContentView)
-                            window.titlebarSeparatorStyle = .none
-                            window.isMovableByWindowBackground = true
-                            window.backgroundColor = .clear
-                            window.isOpaque = false
-                            window.hasShadow = true
-                            window.titlebarAppearsTransparent = true
-                            window.animationBehavior = .documentWindow
-                            window.center()
-                        }
-                    }
+                    .preferredColorScheme(themeManager.colorScheme)
                 }
             }
         }
@@ -151,6 +134,21 @@ struct Killah_PrototypeApp: App {
         Settings {
             SettingsView(modelManager: modelManager)
                 .environmentObject(themeManager)
+                .onAppear {
+                    if let window = NSApplication.shared.windows.first(where: { $0.title == "Settings" }) {
+                        themeManager.applyTheme(to: window)
+                        window.titlebarSeparatorStyle = .none
+                        window.isMovableByWindowBackground = true
+                        window.setContentSize(NSSize(width: 400, height: 500))
+                        window.setFrameAutosaveName("SettingsWindow")
+                        window.styleMask.insert(.resizable)
+                    }
+                }
+                .onChange(of: themeManager.currentTheme) { _ in
+                    if let window = NSApplication.shared.windows.first(where: { $0.title == "Settings" }) {
+                        themeManager.applyTheme(to: window)
+                    }
+                }
         }
         .commands {
             MenuCommands()
@@ -161,10 +159,10 @@ struct Killah_PrototypeApp: App {
 struct MenuCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("About Killah") {
+            Button("About Killah".localized) {
                 let alert = NSAlert()
-                alert.messageText = "About Killah"
-                alert.informativeText = "Killah Text Editor\nVersion 1.0\n\n© 2025 Vladislav Kalinichenko"
+                alert.messageText = "About Killah".localized
+                alert.informativeText = "Killah Text Editor\nVersion 1.0\n\n© 2025 Vladislav Kalinichenko".localized
                 alert.alertStyle = .informational
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
@@ -172,7 +170,7 @@ struct MenuCommands: Commands {
         }
 
         CommandGroup(replacing: .sidebar) {
-            Button("New") {
+            Button("New".localized) {
                 #if os(macOS)
                 NSDocumentController.shared.newDocument(nil)
                 #else
@@ -181,7 +179,7 @@ struct MenuCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: [.command])
             
-            Button("Open...") {
+            Button("Open...".localized) {
                 #if os(macOS)
                 NSDocumentController.shared.openDocument(nil)
                 #else
@@ -198,19 +196,19 @@ struct MenuCommands: Commands {
         }
 
         CommandGroup(replacing: .textFormatting) {
-            Button("Bold") {
+            Button("Bold".localized) {
                 FormattingCommands.shared.toggleBold()
             }
             .keyboardShortcut("b", modifiers: [.command])
-            Button("Italic") {
+            Button("Italic".localized) {
                 FormattingCommands.shared.toggleItalic()
             }
             .keyboardShortcut("i", modifiers: [.command])
-            Button("Underline") {
+            Button("Underline".localized) {
                 FormattingCommands.shared.toggleUnderline()
             }
             .keyboardShortcut("u", modifiers: [.command])
-            Button("Strikethrough") {
+            Button("Strikethrough".localized) {
                 FormattingCommands.shared.toggleStrikethrough()
             }
             .keyboardShortcut("x", modifiers: [.command, .shift])

@@ -10,27 +10,27 @@ struct ModelDownloadView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            Text("AI Models Required")
+            Text("AI Models Required".localized)
                 .font(.title2)
                 .fontWeight(.bold)
 
-            Text("To enable AI features like autocompletion and voice commands, additional models need to be downloaded.")
+            Text("To enable AI features like autocompletion and voice commands, additional models need to be downloaded.".localized)
                 .multilineTextAlignment(.center)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: 300)
 
             if isDownloading {
-                ProgressView("Downloading...", value: downloadProgress, total: 1.0)
+                ProgressView("Downloading...".localized, value: downloadProgress, total: 1.0)
                     .progressViewStyle(LinearProgressViewStyle())
                     .frame(width: 250)
             } else {
                 HStack {
-                    Button("Not Now") {
+                    Button("Not Now".localized) {
                         appState.closeModelDownloadSheet()
                     }
                     .keyboardShortcut(.cancelAction)
 
-                    Button("Download") {
+                    Button("Download".localized) {
                         modelManager.downloadModels()
                     }
                     .buttonStyle(.borderedProminent)

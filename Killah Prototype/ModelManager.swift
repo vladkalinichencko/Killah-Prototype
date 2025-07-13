@@ -9,6 +9,33 @@ class ModelManager: NSObject, ObservableObject {
         case downloading(progress: Double)
         case ready
         case error(String)
+        
+        var missingFiles: [ModelFile]? {
+            switch self {
+            case .needsDownloading(let missing):
+                return missing
+            default:
+                return nil
+            }
+        }
+        
+        var isDownloading: Bool {
+            switch self {
+            case .downloading:
+                return true
+            default:
+                return false
+            }
+        }
+        
+        var progress: Double {
+            switch self {
+            case .downloading(let progress):
+                return progress
+            default:
+                return 0.0
+            }
+        }
     }
 
     struct ModelFile: Equatable {
@@ -320,5 +347,33 @@ extension ModelManager: URLSessionDownloadDelegate {
     
     private func loadHFToken() -> String? {
         return ProcessInfo.processInfo.environment["HF_TOKEN"]
+    }
+    
+    func deleteAllModels() {
+        print("🗑️ ModelManager.deleteAllModels() initiated")
+        
+        let fileManager = FileManager.default
+        
+        do {
+            // Удаляем всю папку models
+            if fileManager.fileExists(atPath: modelsDirectory.path) {
+                try fileManager.removeItem(at: modelsDirectory)
+                print("✅ Successfully deleted models directory")
+            }
+            
+            // Создаем пустую папку models заново
+            try fileManager.createDirectory(at: modelsDirectory, withIntermediateDirectories: true, attributes: nil)
+            print("📁 Recreated empty models directory")
+            
+            // Обновляем статус
+            DispatchQueue.main.async {
+                self.status = .needsDownloading(missing: self.allModels)
+            }
+        } catch {
+            print("❌ Error deleting models: \(error)")
+            DispatchQueue.main.async {
+                self.status = .error("Failed to delete models: \(error.localizedDescription)")
+            }
+        }
     }
 } 

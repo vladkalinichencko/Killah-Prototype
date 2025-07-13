@@ -293,7 +293,7 @@ struct CaretPromptField: View {
     // Unified animation
     private let caretUIAnimation = Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)
     var body: some View {
-        TextField("Ask lil Pushkin", text: $coordinator.promptText, axis: .vertical)
+        TextField("Ask lil Pushkin".localized, text: $coordinator.promptText, axis: .vertical)
             .font(.system(size: coordinator.promptFieldFontSize))
             .textFieldStyle(PlainTextFieldStyle())
             .frame(
@@ -561,7 +561,7 @@ struct TranscriptionView: View {
     private var transcriptionContent: some View {
         Group {
             if displayedWords.isEmpty {
-                Text("Listening...")
+                Text("Listening...".localized)
                     .font(.system(size: coordinator.promptFieldFontSize, weight: .regular))
                     .foregroundColor(textColor)
                     .frame(maxWidth: 270, alignment: .trailing)

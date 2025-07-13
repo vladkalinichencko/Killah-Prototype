@@ -19,12 +19,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func setupDocumentController() {
-        // Настраиваем папку Killah как папку по умолчанию для открытия файлов
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let killahDocumentsURL = documentsURL.appendingPathComponent("Killah")
-        
-        // Сохраняем путь для использования в диалогах
-        UserDefaults.standard.set(killahDocumentsURL.path, forKey: "DefaultOpenDirectory")
+        // Проверяем, есть ли уже сохраненный путь к документам
+        if let savedPath = UserDefaults.standard.string(forKey: "DefaultOpenDirectory"), !savedPath.isEmpty {
+            // Используем сохраненный путь
+            print("📁 Используем сохраненный путь к документам: \(savedPath)")
+        } else {
+            // Настраиваем папку Killah как папку по умолчанию для открытия файлов
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let killahDocumentsURL = documentsURL.appendingPathComponent("Killah")
+            
+            // Сохраняем путь для использования в диалогах
+            UserDefaults.standard.set(killahDocumentsURL.path, forKey: "DefaultOpenDirectory")
+            UserDefaults.standard.synchronize()
+            print("📁 Установлен путь по умолчанию: \(killahDocumentsURL.path)")
+        }
     }
     
     private func loadEnvironmentVariables() {

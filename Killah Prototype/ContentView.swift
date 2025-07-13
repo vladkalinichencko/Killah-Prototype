@@ -226,19 +226,4 @@ struct ContentView_Previews: PreviewProvider {
     }
 }
 
-extension ModelManager.ModelStatus {
-    var isDownloading: Bool {
-        if case .downloading = self { return true }
-        return false
-    }
-    
-    var progress: Double {
-        if case .downloading(let progress) = self { return progress }
-        return 0
-    }
-    
-    var missingFiles: [ModelManager.ModelFile]? {
-        if case .needsDownloading(let files) = self { return files }
-        return nil
-    }
-}
+

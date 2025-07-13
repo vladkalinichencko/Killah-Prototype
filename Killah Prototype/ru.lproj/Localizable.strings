@@ -1,0 +1,60 @@
+/* 
+  Localizable.strings
+  Killah Prototype
+  
+  Created by Vladislav Kalinichenko on 07.05.2025.
+*/
+
+// MARK: - Settings View
+"Appearance" = "Внешний вид";
+"Documents" = "Документы";
+"Default documents folder:" = "Папка документов по умолчанию:";
+"Change folder..." = "Изменить папку...";
+"Reset to default" = "Сбросить по умолчанию";
+"Models" = "Модели";
+"All models are downloaded" = "Все модели загружены";
+"Delete all models" = "Удалить все модели";
+"Force re-check" = "Принудительная проверка";
+"%d models need to be downloaded" = "%d моделей нужно загрузить";
+"Download models" = "Загрузить модели";
+"Downloading models..." = "Загрузка моделей...";
+"%d%%" = "%d%%";
+"Retry download" = "Повторить загрузку";
+"Settings Info" = "Информация о настройках";
+"Current theme:" = "Текущая тема:";
+"Documents folder:" = "Папка документов:";
+"Reset all settings to default" = "Сбросить все настройки по умолчанию";
+
+// MARK: - Model Download View
+"AI Models Required" = "Требуются AI модели";
+"To enable AI features like autocompletion and voice commands, additional models need to be downloaded." = "Для включения AI функций, таких как автодополнение и голосовые команды, необходимо загрузить дополнительные модели.";
+"Not Now" = "Не сейчас";
+"Download" = "Загрузить";
+
+// MARK: - Smart Caret
+"Ask lil Pushkin" = "Спроси у Пушкина";
+"Listening..." = "Слушаю...";
+
+// MARK: - Loading Overlay
+"Loading model..." = "Загружаем модель…";
+
+// MARK: - Menu Commands
+"About Killah" = "О программе Killah";
+"New" = "Новый";
+"Open..." = "Открыть...";
+"Bold" = "Жирный";
+"Italic" = "Курсив";
+"Underline" = "Подчеркнутый";
+"Strikethrough" = "Зачеркнутый";
+
+// MARK: - Alerts
+"Delete All Models" = "Удалить все модели";
+"This will delete all downloaded models. You'll need to download them again to use the app." = "Это удалит все загруженные модели. Вам нужно будет загрузить их снова для использования приложения.";
+"Reset All Settings" = "Сбросить все настройки";
+"This will reset all application settings to their default values. This cannot be undone." = "Это сбросит все настройки приложения к значениям по умолчанию. Это действие нельзя отменить.";
+"Settings Reset" = "Настройки сброшены";
+"All settings have been reset to default values. Some changes may require restarting the application." = "Все настройки были сброшены к значениям по умолчанию. Некоторые изменения могут потребовать перезапуска приложения.";
+"Select default documents folder" = "Выберите папку документов по умолчанию";
+
+// MARK: - About Dialog
+"Killah Text Editor\nVersion 1.0\n\n© 2025 Vladislav Kalinichenko" = "Killah Текстовый редактор\nВерсия 1.0\n\n© 2025 Владислав Калиниченко"; 

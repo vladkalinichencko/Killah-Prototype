@@ -6,7 +6,7 @@ struct LoadingOverlayView: View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("Загружаем модель…")
+            Text("Loading model...".localized)
                 .font(.system(size: 14, weight: .medium))
         }
         .padding(.horizontal, 16)
