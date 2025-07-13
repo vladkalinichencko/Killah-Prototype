@@ -3,6 +3,9 @@ import torch
 import os
 from llama_cpp import Llama
 import contextlib
+import shutil
+
+
 
 # Функция для подавления stderr во время загрузки модели
 @contextlib.contextmanager
@@ -15,7 +18,6 @@ def suppress_stderr():
         finally:
             sys.stderr = old_stderr
 
-
 class LLM:
     _instance = None
     
@@ -23,6 +25,8 @@ class LLM:
         self.model = None
         # Read model directory from environment variable
         base_model_path = os.environ.get('MODEL_DIR') or os.path.dirname(__file__)
+        # Look for model in the subdirectory structure that Swift creates
+        self.model_path = os.path.join(base_model_path, "gemma-3-4b-pt-qat-q4_0-gguf", "gemma-3-4b-pt-q4_0.gguf")
         self.model_path = os.path.join(base_model_path, "gemma", "gemma-3-4b-pt-q4_0.gguf")
         
         # Получаем HF_TOKEN из переменной окружения
@@ -45,6 +49,13 @@ class LLM:
             hf_id = "google/gemma-3-4b-pt-qat-q4_0-gguf"
 
             if os.path.exists(self.model_path):
+                # Check if file is too small (likely corrupted)
+                file_size = os.path.getsize(self.model_path)
+                if file_size < 1000000:  # Less than 1MB is definitely corrupted
+                    print(f"❌ Model file appears corrupted (size: {file_size} bytes)", file=sys.stderr, flush=True)
+                    print(f"💡 Please re-download the model using Swift ModelManager", file=sys.stderr, flush=True)
+                    return False
+                
                 print(f"Loading local model from {self.model_path}", file=sys.stderr, flush=True)
                 with suppress_stderr():
                     self.model = Llama(
@@ -54,15 +65,9 @@ class LLM:
                     n_gpu_layers = n_gpu_layers,
                     verbose=True)
             else:
-                print(f"Local model is missing at {self.model_path}. Downloading from Hugging Face...", file=sys.stderr, flush=True)
-                self.model = Llama.from_pretrained(
-                    repo_id=hf_id,
-                    filename="gemma-3-4b-pt-q4_0.gguf",
-                    n_ctx=1024,
-                    n_threads=8,
-                    n_gpu_layers = n_gpu_layers,
-                    verbose=True,
-                    token=self.hf_token)
+                print(f"❌ Local model not found at {self.model_path}", file=sys.stderr, flush=True)
+                print(f"💡 Model should be downloaded by Swift ModelManager first", file=sys.stderr, flush=True)
+                return False
                     
             print("Model loaded successfully", file=sys.stderr, flush=True)
             return True

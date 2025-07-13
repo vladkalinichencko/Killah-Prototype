@@ -24,7 +24,7 @@ def initialize_model():
         loader = get_model_loader()
         if not loader:
             print("Failed to get model loader.", file=sys.stderr, flush=True)
-            return None, None
+            return None
         
         model = loader.get_model()
 
@@ -107,10 +107,8 @@ if __name__ == "__main__":
     while True:
         try:
             if not model:
-                print("Autocomplete model not initialized. Retrying in 5 seconds.", file=sys.stderr, flush=True)
-                time.sleep(5)
-                model = initialize_model()
-                continue
+                print("Autocomplete model not initialized. Exiting.", file=sys.stderr, flush=True)
+                break
 
             readable, _, _ = select.select([sys.stdin], [], [], 0.05)
 

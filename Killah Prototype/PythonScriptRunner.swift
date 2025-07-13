@@ -73,6 +73,12 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
         if let modelDir = modelDirectory {
             env["MODEL_DIR"] = modelDir
         }
+        
+        // Load HF_TOKEN from config.env and pass to Python scripts
+        if let hfToken = loadHFToken() {
+            env["HF_TOKEN"] = hfToken
+        }
+        
         // Force single-threaded execution for compatibility with macOS sandboxing
         // and to prevent joblib from trying to spawn processes.
         env["OMP_NUM_THREADS"] = "1"
@@ -368,6 +374,25 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
         } catch {
             print("🫩 Error writing command to \(scriptName) stdin: \(error)")
         }
+    }
+    
+    private func loadHFToken() -> String? {
+        guard let resourcesPath = Bundle.main.resourcePath else { return nil }
+        let configPath = resourcesPath + "/config.env"
+        
+        do {
+            let configContent = try String(contentsOfFile: configPath, encoding: .utf8)
+            for line in configContent.components(separatedBy: .newlines) {
+                let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedLine.hasPrefix("HF_TOKEN=") {
+                    let token = String(trimmedLine.dropFirst("HF_TOKEN=".count))
+                    return token.isEmpty ? nil : token
+                }
+            }
+        } catch {
+            print("⚠️ Failed to load config.env: \(error)")
+        }
+        return nil
     }
     
 }

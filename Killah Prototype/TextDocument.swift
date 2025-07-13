@@ -74,12 +74,54 @@ struct DocumentItem: Identifiable {
     }
     
     static func loadFromDirectory() -> [DocumentItem] {
+        print("🚀 loadFromDirectory() вызвана")
+        
         let fileManager = FileManager.default
-        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        print("📂 Получаем путь к Documents...")
+        
+        // Используем обычную папку Documents пользователя
+        let documentsURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+        print("📂 Documents путь: \(documentsURL.path)")
+        
+        let killahDocumentsURL = documentsURL.appendingPathComponent("Killah")
+        print("📂 Полный путь к папке Killah: \(killahDocumentsURL.path)")
+        
+        // Проверяем существование папки
+        let folderExists = fileManager.fileExists(atPath: killahDocumentsURL.path)
+        print("🔍 Папка Killah существует: \(folderExists)")
+        
+        // Создаем папку Killah если её нет
+        if !folderExists {
+            print("📁 Папка Killah не найдена, создаем...")
+            do {
+                try fileManager.createDirectory(at: killahDocumentsURL, withIntermediateDirectories: true)
+                print("✅ Папка Killah создана успешно: \(killahDocumentsURL.path)")
+                
+                // Проверяем, что папка действительно создана
+                let created = fileManager.fileExists(atPath: killahDocumentsURL.path)
+                print("🔍 Проверка создания папки: \(created)")
+                
+                // Создаем файл с логотипом для красивого отображения в Finder
+                createFolderIcon(for: killahDocumentsURL)
+            } catch {
+                print("❌ Ошибка создания папки Killah: \(error)")
+                print("❌ Детали ошибки: \(error.localizedDescription)")
+                return []
+            }
+        } else {
+            print("📁 Папка Killah уже существует: \(killahDocumentsURL.path)")
+        }
 
-        print("📂 Сканируем папку: \(documentsURL.path)")
+        print("📂 Сканируем папку: \(killahDocumentsURL.path)")
 
-        let urls = (try? fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil)) ?? []
+        let urls: [URL]
+        do {
+            urls = try fileManager.contentsOfDirectory(at: killahDocumentsURL, includingPropertiesForKeys: nil)
+        } catch {
+            print("❌ Ошибка чтения содержимого папки: \(error)")
+            print("❌ Детали ошибки: \(error.localizedDescription)")
+            return []
+        }
 
         print("🔎 Найдено файлов: \(urls.count)")
         urls.forEach { print(" - \($0.lastPathComponent)") }
@@ -102,7 +144,61 @@ struct DocumentItem: Identifiable {
             )
         }
 
+        print("📄 Возвращаем \(documents.count) документов")
         return documents
+    }
+    
+    private static func createFolderIcon(for folderURL: URL) {
+        print("🎨 createFolderIcon() вызвана для папки: \(folderURL.path)")
+        
+        // Копируем логотип приложения в папку для иконки
+        print("🔍 Ищем иконку приложения в бандле...")
+        if let appIconPath = Bundle.main.path(forResource: "app-icon-512", ofType: "png", inDirectory: "Assets.xcassets/AppIcon.appiconset") {
+            print("✅ Найдена иконка приложения: \(appIconPath)")
+            let iconPath = folderURL.appendingPathComponent("folder-icon.png")
+            print("📁 Копируем иконку в: \(iconPath.path)")
+            
+            do {
+                try FileManager.default.copyItem(atPath: appIconPath, toPath: iconPath.path)
+                print("✅ Иконка папки создана: \(iconPath.path)")
+            } catch {
+                print("❌ Ошибка копирования иконки: \(error)")
+                print("❌ Детали ошибки: \(error.localizedDescription)")
+            }
+        } else {
+            print("⚠️ Иконка приложения не найдена в бандле")
+            print("🔍 Проверяем содержимое бандла...")
+            if let bundlePath = Bundle.main.resourcePath {
+                print("📂 Путь к ресурсам: \(bundlePath)")
+                do {
+                    let contents = try FileManager.default.contentsOfDirectory(atPath: bundlePath)
+                    print("📁 Содержимое бандла: \(contents)")
+                } catch {
+                    print("❌ Ошибка чтения содержимого бандла: \(error)")
+                }
+            }
+        }
+        
+        // Создаем README файл с описанием папки
+        print("📝 Создаем README файл...")
+        let readmeContent = """
+        # Killah Documents
+        
+        This folder contains your Killah text editor documents.
+        
+        Created by Killah Text Editor
+        """
+        
+        let readmePath = folderURL.appendingPathComponent("README.md")
+        print("📁 Путь к README: \(readmePath.path)")
+        
+        do {
+            try readmeContent.write(to: readmePath, atomically: true, encoding: .utf8)
+            print("✅ README файл создан: \(readmePath.path)")
+        } catch {
+            print("❌ Ошибка создания README файла: \(error)")
+            print("❌ Детали ошибки: \(error.localizedDescription)")
+        }
     }
 }
 

@@ -12,47 +12,79 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     static var dependencies: Dependencies!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        showWelcomeWindow()
+        loadEnvironmentVariables()
+        createDocumentsFolder()
     }
-
-    func showWelcomeWindow() {
-        guard let deps = Self.dependencies else {
-            print("❌ AppDelegate.dependencies не установлены")
-            return
-        }
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Welcome"
-        window.isReleasedWhenClosed = false
-        window.center()
-
-        let rootView = WelcomeView(
-            onCreateNewFile: {
-                NSDocumentController.shared.newDocument(nil)
-            },
-            onOpenFile: { url in
-                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+    
+    private func loadEnvironmentVariables() {
+        guard let resourcesPath = Bundle.main.resourcePath else { return }
+        let configPath = resourcesPath + "/config.env"
+        
+        do {
+            let configContent = try String(contentsOfFile: configPath, encoding: .utf8)
+            for line in configContent.components(separatedBy: .newlines) {
+                let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedLine.hasPrefix("HF_TOKEN=") {
+                    let token = String(trimmedLine.dropFirst("HF_TOKEN=".count))
+                    if !token.isEmpty {
+                        setenv("HF_TOKEN", token, 1)
+                        print("🔧 Set HF_TOKEN environment variable")
+                    }
+                }
             }
-        )
-        .environmentObject(deps.llmEngine)
-        .environmentObject(deps.audioEngine)
-        .environmentObject(deps.themeManager)
-        .environmentObject(deps.modelManager)
-
-        window.contentView = NSHostingView(rootView: rootView)
-        
-        window.isOpaque = true
-        window.backgroundColor = NSColor.windowBackgroundColor
-        window.titlebarAppearsTransparent = false
-        window.hasShadow = true
-        window.styleMask.remove(.fullSizeContentView)
-        
-        window.makeKeyAndOrderFront(nil)
+        } catch {
+            print("⚠️ Failed to load config.env: \(error)")
+        }
     }
-
+    
+    private func createDocumentsFolder() {
+        print("🚀 AppDelegate.createDocumentsFolder() вызвана")
+        
+        let fileManager = FileManager.default
+        print("📂 Получаем путь к Documents...")
+        
+        // Используем обычную папку Documents пользователя
+        let documentsURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+        print("📂 Documents путь: \(documentsURL.path)")
+        
+        let killahDocumentsURL = documentsURL.appendingPathComponent("Killah")
+        print("📂 Полный путь к папке Killah: \(killahDocumentsURL.path)")
+        
+        // Проверяем существование папки
+        let folderExists = fileManager.fileExists(atPath: killahDocumentsURL.path)
+        print("🔍 Папка Killah существует: \(folderExists)")
+        
+        if !folderExists {
+            print("📁 Папка Killah не найдена, создаем...")
+            do {
+                try fileManager.createDirectory(at: killahDocumentsURL, withIntermediateDirectories: true)
+                print("✅ Папка Killah создана успешно: \(killahDocumentsURL.path)")
+                
+                // Проверяем, что папка действительно создана
+                let created = fileManager.fileExists(atPath: killahDocumentsURL.path)
+                print("🔍 Проверка создания папки: \(created)")
+                
+                // Создаем README файл
+                print("📝 Создаем README файл...")
+                let readmeContent = """
+                # Killah Documents
+                
+                This folder contains your Killah text editor documents.
+                
+                Created by Killah Text Editor
+                """
+                
+                let readmePath = killahDocumentsURL.appendingPathComponent("README.md")
+                print("📁 Путь к README: \(readmePath.path)")
+                
+                try readmeContent.write(to: readmePath, atomically: true, encoding: .utf8)
+                print("✅ README файл создан при инициализации: \(readmePath.path)")
+            } catch {
+                print("❌ Ошибка создания папки при инициализации: \(error)")
+                print("❌ Детали ошибки: \(error.localizedDescription)")
+            }
+        } else {
+            print("📁 Папка Killah уже существует при инициализации: \(killahDocumentsURL.path)")
+        }
+    }
 }

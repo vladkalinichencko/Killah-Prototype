@@ -150,7 +150,18 @@ class ModelManager: NSObject, ObservableObject {
         self.totalBytesDownloaded = 0
         self.downloadProgressPerTask = [:]
 
-        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        // Load HF_TOKEN from config.env
+        let hfToken = loadHFToken()
+        
+        let config = URLSessionConfiguration.default
+        if let token = hfToken {
+            config.httpAdditionalHeaders = ["Authorization": "Bearer \(token)"]
+            print("🔧 Using HF_TOKEN for model download")
+        } else {
+            print("⚠️ HF_TOKEN not found, download may fail for gated models")
+        }
+        
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
 
         var tasks: [URLSessionDownloadTask] = []
         var modelsToSize: [(ModelFile, String, URL)] = []
@@ -163,6 +174,7 @@ class ModelManager: NSObject, ObservableObject {
                 let localPath = modelDirURL.appendingPathComponent(fileName).path
                 if FileManager.default.fileExists(atPath: localPath) { continue }
                 let remoteURL = model.remoteURL(for: fileName)
+                print("🔗 Downloading from URL: \(remoteURL)")
                 let task = session.downloadTask(with: remoteURL)
                 task.taskDescription = "\(model.dirName)|\(fileName)"
                 downloadGroup.enter()
@@ -193,9 +205,17 @@ class ModelManager: NSObject, ObservableObject {
 
     private func getTotalSizeForFiles(_ urls: [URL]) async -> Int64 {
         var totalSize: Int64 = 0
+        
+        // Load HF_TOKEN for HEAD requests
+        let hfToken = loadHFToken()
+        
         for url in urls {
             var request = URLRequest(url: url)
             request.httpMethod = "HEAD"
+            if let token = hfToken {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            
             if let (_, response) = try? await URLSession.shared.data(for: request),
                let httpResponse = response as? HTTPURLResponse,
                let length = httpResponse.value(forHTTPHeaderField: "Content-Length"),
@@ -239,9 +259,24 @@ extension ModelManager: URLSessionDownloadDelegate {
 
         let fileManager = FileManager.default
         
+        // Check if the downloaded file is corrupted (contains error message)
+        do {
+            let downloadedContent = try String(contentsOf: location, encoding: .utf8)
+            if downloadedContent.contains("Access to model") && downloadedContent.contains("is restricted") {
+                print("❌ Downloaded file contains authentication error: \(downloadedContent)")
+                DispatchQueue.main.async {
+                    self.status = .error("Authentication failed - check HF_TOKEN in config.env")
+                }
+                return
+            }
+        } catch {
+            // File is binary, which is expected
+        }
+        
         do {
             try? fileManager.removeItem(at: destinationURL)
             try fileManager.moveItem(at: location, to: destinationURL)
+            print("✅ Successfully downloaded and moved: \(fileName)")
         } catch {
             DispatchQueue.main.async {
                 self.status = .error("Failed to move file: \(error.localizedDescription)")
@@ -281,5 +316,9 @@ extension ModelManager: URLSessionDownloadDelegate {
     
     private func unzip(file: URL) throws {
         // This function is kept for backward compatibility but is no longer used in the new per-file download flow.
+    }
+    
+    private func loadHFToken() -> String? {
+        return ProcessInfo.processInfo.environment["HF_TOKEN"]
     }
 } 

@@ -6,69 +6,21 @@
 //
 
 import SwiftUI
-
-struct DocumentHostView: View {
-    @Binding var document: TextDocument
-    @State private var hasBeenOpened = false
-
-    var body: some View {
-        if hasBeenOpened {
-            AnyView(ContentView(document: $document))
-        } else {
-            AnyView(
-                WelcomeView(
-                    onCreateNewFile: {
-                        // Например: просто сбрасываем document.text = ""
-                        document.text = ""
-                        hasBeenOpened = true
-                    },
-                    onOpenFile: { url in
-                        if let text = try? String(contentsOf: url, encoding: .utf8) {
-                            document.text = text
-                            hasBeenOpened = true
-                        }
-                    },
-                )
-            )
-        }
-    }
-}
-
+import AppKit
 
 struct WelcomeView: View {
-    var onCreateNewFile: () -> Void
-    var onOpenFile: (URL) -> Void
-
     @State private var recentDocuments: [DocumentItem] = []
     @State private var showingFileImporter = false
-
+    @EnvironmentObject var appState: AppStateManager
+    @EnvironmentObject var llmEngine: LLMEngine
+    @EnvironmentObject var audioEngine: AudioEngine
+    @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var modelManager: ModelManager
 
     var body: some View {
         VStack(spacing: 32) {
-            // Заголовок
-            Text("Killah")
-                .font(.system(size: 40, weight: .bold))
-
-            // Две основные кнопки
-            HStack(spacing: 24) {
-                Button {
-                    onCreateNewFile()
-                } label: {
-                    Label("Создать новый файл", systemImage: "doc.badge.plus")
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    showingFileImporter = true
-                } label: {
-                    Label("Открыть файл", systemImage: "folder")
-                }
-                .buttonStyle(.bordered)
-            }
-
-            Divider()
-                .padding(.horizontal, 60)
-
+            Spacer()
+            
             // Сетка недавних документов
             if !recentDocuments.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
@@ -81,7 +33,7 @@ struct WelcomeView: View {
                             ForEach(recentDocuments.prefix(8)) { doc in
                                 DocumentCard(document: doc)
                                     .onTapGesture {
-                                        onOpenFile(doc.url)
+                                        appState.openDocument(from: doc.url)
                                     }
                             }
                         }
@@ -89,12 +41,32 @@ struct WelcomeView: View {
                     }
                 }
             }
-
+            
             Spacer()
+            
+            // Две основные кнопки внизу
+            HStack(spacing: 24) {
+                Button {
+                    appState.createNewDocument()
+                } label: {
+                    Label("Создать новый файл", systemImage: "doc.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    showingFileImporter = true
+                } label: {
+                    Label("Открыть файл", systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.bottom, 40)
         }
         .frame(minWidth: 800, minHeight: 600)
         .onAppear {
+            print("🚀 WelcomeView.onAppear() вызван")
             recentDocuments = DocumentItem.loadFromDirectory()
+            print("📄 WelcomeView: Загружено \(recentDocuments.count) документов")
         }
         .fileImporter(
             isPresented: $showingFileImporter,
@@ -102,7 +74,7 @@ struct WelcomeView: View {
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                onOpenFile(url)
+                appState.openDocument(from: url)
             }
         }
     }
