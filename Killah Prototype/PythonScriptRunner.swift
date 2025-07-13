@@ -295,9 +295,9 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
                                 self.updateState(.running)
                                 self.isAbortedManually = false
                             } else if self.state == .running && !self.isAbortedManually {
-                                if line == "Streaming suggestions..." {
+                                if line == "STREAM" {
                                     self.accumulatedOutput = ""
-                                } else if line == "END_SUGGESTIONS" {
+                                } else if line == "END" {
                                     if let callback = self.currentCompletionCallback {
                                         callback(.success(self.accumulatedOutput))
                                     }
@@ -408,3 +408,16 @@ class AutocompleteScriptRunner: BaseScriptRunner {
         super.init(scriptName: "autocomplete.py", modelDirectory: modelDirectory)
     }
 }
+
+class CaretScriptRunner: BaseScriptRunner {
+    init(modelDirectory: String?) {
+        super.init(scriptName: "embedding_processor.py", modelDirectory: modelDirectory)
+    }
+}
+
+class EmbeddingsRunner: BaseScriptRunner {
+    init(modelDirectory: String?) {
+        super.init(scriptName: "text_to_embeddings.py", modelDirectory: modelDirectory)
+    }
+}
+

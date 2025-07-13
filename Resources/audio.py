@@ -186,7 +186,7 @@ def process_audio_file(file_path):
         return None
     embeddings = audio_processor.process_audio(file_path)
     if embeddings is not None:
-        print("END_SUGGESTIONS", flush=True)
+        print("END", flush=True)
     return embeddings
     
 if __name__ == "__main__":

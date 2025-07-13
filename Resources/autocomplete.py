@@ -25,7 +25,7 @@ def initialize_model():
         if not loader:
             print("Failed to get model loader.", file=sys.stderr, flush=True)
             return None
-        
+            
         model = loader.get_model()
 
         if model:
@@ -142,15 +142,15 @@ if __name__ == "__main__":
                 interrupted = False
 
                 if prompt_to_process:
-                    print("Streaming suggestions...", flush=True)
+                    print("STREAM", flush=True)
                     for token in stream_suggestions(model, prompt_to_process, current_temperature):
                         if interrupted:
                             break
                         print(token, flush=True)
                     if not interrupted:
-                        print("END_SUGGESTIONS", flush=True)
+                        print("END", flush=True)
                 else:
-                    print("END_SUGGESTIONS", flush=True)
+                    print("END", flush=True)
         
         except (EOFError, KeyboardInterrupt):
             print("KeyboardInterrupt or EOF in main loop, exiting.", file=sys.stderr, flush=True)
@@ -245,7 +245,7 @@ if __name__ == "__main__":
 #             interrupted = False  # <-- Сброс сразу после взятия prompt
 
 #             if prompt_to_process:
-#                 print("Streaming suggestions...", flush=True)
+#                 print("STREAM", flush=True)
 #                 suggestions = generate_suggestions(prompt_to_process)
 #                 for suggestion in suggestions:
 #                     if interrupted:

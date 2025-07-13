@@ -293,7 +293,16 @@ struct CaretPromptField: View {
     // Unified animation
     private let caretUIAnimation = Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1)
     var body: some View {
-        TextField("Ask lil Pushkin".localized, text: $coordinator.promptText, axis: .vertical)
+        TextField("Ask lil Pushkin", text: $coordinator.promptText, axis: .vertical)
+            .onSubmit {
+                if let textView = (coordinator.textInsertionHandler).self as? NSTextView {
+                    let selectedRange = textView.selectedRange()
+                    let selectedText = selectedRange.length > 0 ? (textView.string as NSString).substring(with: selectedRange) : nil
+                    coordinator.generateFromTextPrompt(selectedText: selectedText)
+                } else {
+                    coordinator.generateFromTextPrompt()
+                }
+            }
             .font(.system(size: coordinator.promptFieldFontSize))
             .textFieldStyle(PlainTextFieldStyle())
             .frame(

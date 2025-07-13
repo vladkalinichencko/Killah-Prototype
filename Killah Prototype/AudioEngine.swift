@@ -32,7 +32,8 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
     private let llmEngine: LLMEngine // Inject LLMEngine
     private var stateCancellable: AnyCancellable?
 
-
+    var onTranscriptionComplete: ((String) -> Void)?
+    
     init(llmEngine: LLMEngine) {
         self.llmEngine = llmEngine
         super.init()
@@ -387,28 +388,16 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
                              print("Audio token received: \(token)")
                         }
                     },
-                    onComplete: { result in
-                        // Когда обработка завершена, переключаемся обратно в главный поток,
-                        // чтобы безопасно обновить UI и обработать результат.
+                    onComplete: { [weak self] result in
+                        guard let self = self else { return }
                         DispatchQueue.main.async {
-                            print("✅ [MAIN THREAD] onComplete handler started.")
-                            // Сбрасываем состояние обработки аудио
                             self.isProcessingAudio = false
                             switch result {
-                            case .success(let output):
-                                print("Audio processing completed: \(output)")
-                                do {
-                                    // Удаляем временный файл после успешной обработки
-                                    try FileManager.default.removeItem(at: audioFilePath)
-                                    print("✅ Audio file deleted: \(audioFilePath.path)")
-                                } catch {
-                                    print("❌ Failed to delete audio file \(audioFilePath.path): \(error)")
-                                }
+                            case .success(let embeddingsPath):
+                                self.processEmbeddings(embeddingsPath)
                             case .failure(let error):
-                                print("Audio processing failed: \(error.localizedDescription)")
-                                print("Failed to process audio: \(error.localizedDescription)")
+                                print("Failed to process audio: \(error)")
                             }
-                            print("✅ [MAIN THREAD] onComplete handler finished.")
                         }
                     }
                 )
@@ -422,5 +411,35 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
                 }
             }
         }
+    }
+    private func processEmbeddings(_ embeddingsPath: String) {
+        llmEngine.startEngine(for: "caret")
+        llmEngine.generateSuggestion(
+            for: "caret",
+            prompt: embeddingsPath,
+            tokenStreamCallback: { token in
+                // Коллбэки могут приходить в любом потоке,
+                // поэтому для любых обновлений UI лучше явно переключаться в главный поток.
+                DispatchQueue.main.async {
+                     print("Processed audio embedding token received: \(token)")
+                }
+            },
+            onComplete: { [weak self] result in
+                guard let self = self else { return }
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let text):
+                        self.onTranscriptionComplete?(text)
+                        do {
+                            try FileManager.default.removeItem(atPath: embeddingsPath)
+                        } catch {
+                            print("Failed to delete temp file: \(error)")
+                        }
+                    case .failure(let error):
+                        print("Error processing embeddings: \(error)")
+                    }
+                }
+            }
+        )
     }
 }

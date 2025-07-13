@@ -46,6 +46,8 @@ class LLMEngine: ObservableObject {
         // Инициализация runner'ов для скриптов
         runners["audio"] = AudioScriptRunner(modelDirectory: modelDir)
         runners["autocomplete"] = AutocompleteScriptRunner(modelDirectory: modelDir)
+        runners["embeddings"] = EmbeddingsRunner(modelDirectory: modelDir)
+        runners["caret"] = CaretScriptRunner(modelDirectory: modelDir)
 
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in

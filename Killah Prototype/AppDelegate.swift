@@ -116,6 +116,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         llmEngine.startEngine(for: "autocomplete")
         llmEngine.startEngine(for: "audio")
+        llmEngine.startEngine(for: "embeddings")
+        llmEngine.startEngine(for: "caret")
+
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.checkPythonScriptsState()

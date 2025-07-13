@@ -11,6 +11,9 @@
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */ = {isa = PBXBuildFile; fileRef = 40C0B9A32E15258500F0DD0D /* main_llm.py */; };
+		7634DCEB2E241AA800C5A3D9 /* embedding_processor.py in Resources */ = {isa = PBXBuildFile; fileRef = 7634DCEA2E241AA800C5A3D9 /* embedding_processor.py */; };
+		7634DCF12E241CBD00C5A3D9 /* text_to_embeddings.py in Resources */ = {isa = PBXBuildFile; fileRef = 7634DCF02E241CBD00C5A3D9 /* text_to_embeddings.py */; };
+		7634DCF32E24282100C5A3D9 /* config.env in Resources */ = {isa = PBXBuildFile; fileRef = 7634DCF22E24282100C5A3D9 /* config.env */; };
 		766B4C212E1C5B93008E73F5 /* min_p_sampling.py in Resources */ = {isa = PBXBuildFile; fileRef = 766B4C202E1C5B93008E73F5 /* min_p_sampling.py */; };
 		76D31FC22E01EC4A00F35B70 /* audio.py in Resources */ = {isa = PBXBuildFile; fileRef = 76D31FC12E01EC4A00F35B70 /* audio.py */; };
 /* End PBXBuildFile section */
@@ -22,6 +25,9 @@
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C0B9A32E15258500F0DD0D /* main_llm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = main_llm.py; path = Resources/main_llm.py; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7634DCEA2E241AA800C5A3D9 /* embedding_processor.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = embedding_processor.py; path = Resources/embedding_processor.py; sourceTree = "<group>"; };
+		7634DCF02E241CBD00C5A3D9 /* text_to_embeddings.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = text_to_embeddings.py; path = Resources/text_to_embeddings.py; sourceTree = "<group>"; };
+		7634DCF22E24282100C5A3D9 /* config.env */ = {isa = PBXFileReference; lastKnownFileType = text; name = config.env; path = Resources/config.env; sourceTree = "<group>"; };
 		766B4C202E1C5B93008E73F5 /* min_p_sampling.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = min_p_sampling.py; path = Resources/min_p_sampling.py; sourceTree = "<group>"; };
 		76D31FC12E01EC4A00F35B70 /* audio.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = audio.py; path = Resources/audio.py; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -48,6 +54,9 @@
 		40C731562DC63936004D753D = {
 			isa = PBXGroup;
 			children = (
+				7634DCF22E24282100C5A3D9 /* config.env */,
+				7634DCF02E241CBD00C5A3D9 /* text_to_embeddings.py */,
+				7634DCEA2E241AA800C5A3D9 /* embedding_processor.py */,
 				766B4C202E1C5B93008E73F5 /* min_p_sampling.py */,
 				40C0B9A32E15258500F0DD0D /* main_llm.py */,
 				76D31FC12E01EC4A00F35B70 /* audio.py */,
@@ -136,6 +145,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7634DCF32E24282100C5A3D9 /* config.env in Resources */,
+				7634DCF12E241CBD00C5A3D9 /* text_to_embeddings.py in Resources */,
+				7634DCEB2E241AA800C5A3D9 /* embedding_processor.py in Resources */,
 				766B4C212E1C5B93008E73F5 /* min_p_sampling.py in Resources */,
 				40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */,
 				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,
@@ -219,7 +231,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = FK825CF827;
+				DEVELOPMENT_TEAM = 4Q826KG7YN;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -284,7 +296,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = FK825CF827;
+				DEVELOPMENT_TEAM = 4Q826KG7YN;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -316,7 +328,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = FK825CF827;
+				DEVELOPMENT_TEAM = 4Q826KG7YN;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -342,7 +354,7 @@
 				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -365,7 +377,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = FK825CF827;
+				DEVELOPMENT_TEAM = 4Q826KG7YN;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -391,7 +403,7 @@
 				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.vladotpad.Killah-Prototype";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.poinka.Killah-Prototype";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
