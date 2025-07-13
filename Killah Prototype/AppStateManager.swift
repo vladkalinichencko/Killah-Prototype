@@ -7,7 +7,15 @@ class AppStateManager: ObservableObject {
     @Published var showWelcome: Bool = true
     @Published var openDocuments: [TextDocument] = []
     
+    // Глобальные состояния для загрузки
+    @Published var isModelDownloading: Bool = false
+    @Published var isPythonScriptsStarting: Bool = false
+    
     private init() {}
+    
+    func closeModelDownloadSheet() {
+        isModelDownloading = false
+    }
     
     func createNewDocument() {
         print("📄 Создаем новый документ")

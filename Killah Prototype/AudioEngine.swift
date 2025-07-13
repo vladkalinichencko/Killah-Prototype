@@ -127,7 +127,7 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
         print("Audio format: \(recordingFormat)")
         
         // Path to save the format
-        let documentsPath = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         print("Documents directory: \(documentsPath.absoluteString)")
         if FileManager.default.isWritableFile(atPath: documentsPath.path) {
             print("✅ Documents directory is writable")

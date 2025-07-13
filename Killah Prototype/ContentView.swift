@@ -63,7 +63,7 @@ struct ContentView: View {
     @State private var isCenterAlignActive = false
     @State private var isRightAlignActive  = false
 
-    @State private var showModelDownloadSheet = false
+    @EnvironmentObject var appState: AppStateManager
 
     var body: some View {
         ZStack {
@@ -73,50 +73,27 @@ struct ContentView: View {
             VStack {
                 Spacer()
                 LoadingOverlayView()
-                    .opacity(isEngineStarting ? 1 : 0)
-                    .offset(y: isEngineStarting ? 0 : 120)
-                    .animation(.easeInOut(duration: 0.35), value: isEngineStarting)
+                    .opacity(appState.isPythonScriptsStarting ? 1 : 0)
+                    .offset(y: appState.isPythonScriptsStarting ? 0 : 120)
+                    .animation(.easeInOut(duration: 0.35), value: appState.isPythonScriptsStarting)
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 20)
             }
         }
         .onAppear {
             updateToolbarStates()
-            print("🖥️ ContentView.onAppear — model status = \(modelManager.status)")
-            if case .needsDownloading = modelManager.status {
-                // Статус уже говорит, что моделей нет – сразу открываем диалог
-                showModelDownloadSheet = true
-            } else if modelManager.status == .ready {
-                llmEngine.startEngine(for: "autocomplete")
-                llmEngine.startEngine(for: "audio")
-            }
         }
-        .task {
-            // Проверяем наличие моделей вне фазы построения вью, чтобы избежать предупреждения SwiftUI
-            modelManager.verifyModels()
-        }
-        .onChange(of: modelManager.status) { _, newStatus in
-            print("🔄 onChange status -> \(newStatus)")
-            switch newStatus {
-            case .ready:
-                llmEngine.startEngine(for: "autocomplete")
-                llmEngine.startEngine(for: "audio")
-            case .needsDownloading:
-                showModelDownloadSheet = true
-                DispatchQueue.main.async {
-                    llmEngine.stopEngine()
-                }
-            default:
-                break
-            }
-        }
-        .sheet(isPresented: $showModelDownloadSheet) {
+        .sheet(isPresented: Binding(
+            get: { appState.isModelDownloading },
+            set: { _ in }
+        )) {
             ModelDownloadView(
                 modelManager: modelManager,
                 missingFiles: (modelManager.status.missingFiles ?? []),
                 isDownloading: modelManager.status.isDownloading,
                 downloadProgress: modelManager.status.progress
             )
+            .environmentObject(appState)
         }
     }
     
@@ -231,12 +208,6 @@ struct ContentView: View {
         isLeftAlignActive   = delegate.isLeftAlignActive()
         isCenterAlignActive = delegate.isCenterAlignActive()
         isRightAlignActive  = delegate.isRightAlignActive()
-    }
-
-    // MARK: - Helper
-    private var isEngineStarting: Bool {
-        (llmEngine.getRunnerState(for: "autocomplete") == .starting) ||
-        (llmEngine.getRunnerState(for: "audio") == .starting)
     }
 }
 

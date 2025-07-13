@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct ModelDownloadView: View {
-    @Environment(\.dismiss) var dismiss
     @ObservedObject var modelManager: ModelManager
+    @EnvironmentObject var appState: AppStateManager
     
     let missingFiles: [ModelManager.ModelFile]
     let isDownloading: Bool
@@ -26,7 +26,7 @@ struct ModelDownloadView: View {
             } else {
                 HStack {
                     Button("Not Now") {
-                        dismiss()
+                        appState.closeModelDownloadSheet()
                     }
                     .keyboardShortcut(.cancelAction)
 
@@ -42,7 +42,7 @@ struct ModelDownloadView: View {
         .frame(width: 400, height: 250)
         .onChange(of: modelManager.status) {
             if modelManager.status == .ready {
-                dismiss()
+                appState.closeModelDownloadSheet()
             }
         }
     }

@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import Combine // Added for Combine publishers
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     struct Dependencies {
@@ -13,7 +14,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         loadEnvironmentVariables()
-        createDocumentsFolder()
+        performInitialChecks()
+        setupDocumentController()
+    }
+    
+    private func setupDocumentController() {
+        // Настраиваем папку Killah как папку по умолчанию для открытия файлов
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let killahDocumentsURL = documentsURL.appendingPathComponent("Killah")
+        
+        // Сохраняем путь для использования в диалогах
+        UserDefaults.standard.set(killahDocumentsURL.path, forKey: "DefaultOpenDirectory")
     }
     
     private func loadEnvironmentVariables() {
@@ -37,54 +48,100 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    private func createDocumentsFolder() {
-        print("🚀 AppDelegate.createDocumentsFolder() вызвана")
+    private func performInitialChecks() {
+        checkKillahFolder()
+        checkModels()
+    }
+    
+    private func checkKillahFolder() {
+        // Используем системную папку Documents пользователя
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let killahDocumentsURL = documentsURL.appendingPathComponent("Killah")
         
         let fileManager = FileManager.default
-        print("📂 Получаем путь к Documents...")
-        
-        // Используем обычную папку Documents пользователя
-        let documentsURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
-        print("📂 Documents путь: \(documentsURL.path)")
-        
-        let killahDocumentsURL = documentsURL.appendingPathComponent("Killah")
-        print("📂 Полный путь к папке Killah: \(killahDocumentsURL.path)")
-        
-        // Проверяем существование папки
         let folderExists = fileManager.fileExists(atPath: killahDocumentsURL.path)
-        print("🔍 Папка Killah существует: \(folderExists)")
         
         if !folderExists {
-            print("📁 Папка Killah не найдена, создаем...")
             do {
                 try fileManager.createDirectory(at: killahDocumentsURL, withIntermediateDirectories: true)
-                print("✅ Папка Killah создана успешно: \(killahDocumentsURL.path)")
-                
-                // Проверяем, что папка действительно создана
-                let created = fileManager.fileExists(atPath: killahDocumentsURL.path)
-                print("🔍 Проверка создания папки: \(created)")
-                
-                // Создаем README файл
-                print("📝 Создаем README файл...")
-                let readmeContent = """
-                # Killah Documents
-                
-                This folder contains your Killah text editor documents.
-                
-                Created by Killah Text Editor
-                """
-                
-                let readmePath = killahDocumentsURL.appendingPathComponent("README.md")
-                print("📁 Путь к README: \(readmePath.path)")
-                
-                try readmeContent.write(to: readmePath, atomically: true, encoding: .utf8)
-                print("✅ README файл создан при инициализации: \(readmePath.path)")
+                print("📁 Создана папка Killah в системной папке Documents")
             } catch {
-                print("❌ Ошибка создания папки при инициализации: \(error)")
-                print("❌ Детали ошибки: \(error.localizedDescription)")
+                print("❌ Ошибка создания папки Killah: \(error)")
             }
-        } else {
-            print("📁 Папка Killah уже существует при инициализации: \(killahDocumentsURL.path)")
         }
     }
+    
+    private func checkModels() {
+        guard let modelManager = AppDelegate.dependencies?.modelManager else { return }
+        
+        // Подписываемся на изменения статуса моделей
+        modelManager.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.handleModelStatusChange(status)
+            }
+            .store(in: &cancellables)
+        
+        modelManager.verifyModels()
+    }
+    
+    private func handleModelStatusChange(_ status: ModelManager.ModelStatus) {
+        switch status {
+        case .needsDownloading:
+            AppStateManager.shared.isModelDownloading = true
+        case .downloading:
+            AppStateManager.shared.isModelDownloading = true
+        case .ready:
+            AppStateManager.shared.isModelDownloading = false
+            startPythonScripts()
+        case .error:
+            AppStateManager.shared.isModelDownloading = false
+        case .checking:
+            break
+        }
+    }
+    
+    private func startPythonScripts() {
+        guard let llmEngine = AppDelegate.dependencies?.llmEngine else { return }
+        
+        AppStateManager.shared.isPythonScriptsStarting = true
+        
+        llmEngine.startEngine(for: "autocomplete")
+        llmEngine.startEngine(for: "audio")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.checkPythonScriptsState()
+        }
+    }
+    
+    private func checkPythonScriptsState() {
+        guard let llmEngine = AppDelegate.dependencies?.llmEngine else { return }
+        
+        let autocompleteState = llmEngine.getRunnerState(for: "autocomplete")
+        let audioState = llmEngine.getRunnerState(for: "audio")
+        
+        if autocompleteState == .running && audioState == .running {
+            AppStateManager.shared.isPythonScriptsStarting = false
+        } else if autocompleteState == LLMEngine.EngineState.error("") || audioState == LLMEngine.EngineState.error("") {
+            AppStateManager.shared.isPythonScriptsStarting = false
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.checkPythonScriptsState()
+            }
+        }
+    }
+    
+    private func createFolderIcon(for folderURL: URL) {
+        if let appIconPath = Bundle.main.path(forResource: "app-icon-512", ofType: "png", inDirectory: "Assets.xcassets/AppIcon.appiconset") {
+            let iconPath = folderURL.appendingPathComponent("folder-icon.png")
+            
+            do {
+                try FileManager.default.copyItem(atPath: appIconPath, toPath: iconPath.path)
+            } catch {
+                print("❌ Ошибка копирования иконки: \(error)")
+            }
+        }
+    }
+    
+    private var cancellables = Set<AnyCancellable>()
 }

@@ -23,8 +23,6 @@ struct Killah_PrototypeApp: App {
         _llmEngine = StateObject(wrappedValue: createdLlmEngine)
         _audioEngine = StateObject(wrappedValue: createdAudioEngine)
 
-        createdModelManager.verifyModels()
-
         AppDelegate.dependencies = .init(
             llmEngine: createdLlmEngine,
             audioEngine: createdAudioEngine,
@@ -49,13 +47,12 @@ struct Killah_PrototypeApp: App {
                     if let window = NSApplication.shared.windows.first(where: { $0.title == "Welcome" }) {
                         window.title = "Welcome"
                         themeManager.applyTheme(to: window)
-                        window.styleMask.insert(.fullSizeContentView)
+                        // window.styleMask.insert(.fullSizeContentView) // УБРАНО для Welcome окна
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
-                        window.backgroundColor = .clear
-                        window.isOpaque = false
+                        window.backgroundColor = NSColor.windowBackgroundColor
+                        window.isOpaque = true
                         window.hasShadow = true
-                        window.titlebarAppearsTransparent = true
                     }
                 }
         }
