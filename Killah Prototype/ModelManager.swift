@@ -31,12 +31,19 @@ class ModelManager: NSObject, ObservableObject {
     // Directories like model weights should be zipped for easier download.
     private var allModels: [ModelFile] = [
         ModelFile(
-            dirName: "wav2vec2-xls-r-300m",
-            repoID: "facebook/wav2vec2-xls-r-300m",
+            dirName: "whisper-small",
+            repoID: "openai/whisper-small",
             requiredFiles: [
+                "added_tokens.json",
                 "config.json",
+                "merges.txt",
+                "normalizer.json",
                 "preprocessor_config.json",
-                "pytorch_model.bin"
+                "pytorch_model.bin",
+                "special_tokens_map.json",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "vocab.json"
             ]
         ),
 //        ModelFile(
@@ -56,10 +63,16 @@ class ModelManager: NSObject, ObservableObject {
 //            ]
 //        )
             ModelFile(
-                dirName: "gemma-3-4b-pt-qat-q4_0-gguf",
+                dirName: "gemma",
                 repoID: "google/gemma-3-4b-pt-qat-q4_0-gguf",
                 requiredFiles: ["gemma-3-4b-pt-q4_0.gguf"]
-        )
+        ),
+            ModelFile(
+                dirName: "checkpoints",
+                repoID: "poinka/checkpoints",
+                requiredFiles: ["latest_checkpoint_bs4_epoch_1_step_4300.pt"]
+            )
+        
         // Any other models like MLP projectors or LoRA adapters can be added here.
         // If they are single files, they don't need to be zipped.
     ]

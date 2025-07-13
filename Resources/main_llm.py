@@ -23,7 +23,7 @@ class LLM:
         self.model = None
         # Read model directory from environment variable
         base_model_path = os.environ.get('MODEL_DIR') or os.path.dirname(__file__)
-        self.model_path = os.path.join(base_model_path, "gemma-3-4b-pt-q4_0.gguf")
+        self.model_path = os.path.join(base_model_path, "gemma", "gemma-3-4b-pt-q4_0.gguf")
         
         # Получаем HF_TOKEN из переменной окружения
         self.hf_token = os.environ.get('HF_TOKEN')
