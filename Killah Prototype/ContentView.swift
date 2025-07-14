@@ -138,63 +138,29 @@ struct ContentView: View {
                 .padding(.horizontal, 10) // Add horizontal padding to prevent toolbar from touching window edges
             
             if let coordinator = caretCoordinator {
-                // Position caret at its computed center from the coordinator
-                SmartCaretView(coordinator: coordinator)
-                    .position(x: coordinator.caretPositionInWindow.x,
-                              y: coordinator.caretPositionInWindow.y)
-                    .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
-                               value: coordinator.caretPositionInWindow)
-                
-                // Only show the AI-related overlays when models are ready
-                if modelManager.status == .ready {
-                    caretOverlays(coordinator: coordinator)
+                if coordinator.shouldShowOverlay {
+                    Color.black.opacity(0.1)
+                        .ignoresSafeArea()
+                        .zIndex(1)
+                        .contentShape(Rectangle())
+                        .onTapGesture { }
+                }
+
+                Group {
+                    CaretOverlayView(coordinator: coordinator) // caret itself
+                        .zIndex(0)
+                    if modelManager.status == .ready {
+                        CaretOverlaysView(coordinator: coordinator) // overlays
+                            .zIndex(2)
+                    }
+                }
+                .onChange(of: coordinator.caretPositionInWindow) { _, _ in
+                    if coordinator.isExpanded {
+                        coordinator.updateUIGroupOffset()
+                    }
                 }
             }
         }
-    }
-    
-    @ViewBuilder
-    private func caretOverlays(coordinator: CaretUICoordinator) -> some View {
-        let verticalAdjustment: CGFloat = 5 
-        let caretTopY = coordinator.caretPositionInWindow.y - (coordinator.caretSize.height / 2)        
-        let baseY = caretTopY - verticalAdjustment
-        let baseX = coordinator.caretPositionInWindow.x - 5
-        
-        ZStack {
-            if coordinator.shouldShowOverlay {
-                Color.black.opacity(0.1)
-                    .edgesIgnoringSafeArea(.all)
-                    .contentShape(Rectangle())
-                    .onTapGesture { }
-            }
-            
-            CaretRecordButton(coordinator: coordinator)
-                .position(x: coordinator.caretPositionInWindow.x - coordinator.caretButtonPadding, y: baseY)
-                .zIndex(2)
-            
-            CaretPromptField(coordinator: coordinator)
-                .position(x: coordinator.caretPositionInWindow.x + coordinator.caretButtonPadding + coordinator.basePromptFieldWidth / 2, y: baseY)
-                .zIndex(2)
-            
-            CaretPauseButton(coordinator: coordinator)
-                .position(x: coordinator.caretPositionInWindow.x,
-                          y: baseY - coordinator.caretButtonPadding - 15) // Скорректировано
-                .zIndex(2)
-            
-            CaretStopButton(coordinator: coordinator)
-                .position(x: coordinator.caretPositionInWindow.x,
-                          y: baseY + coordinator.caretButtonPadding) // Скорректировано
-                .zIndex(2)
-            
-            AudioWaveformView(coordinator: coordinator)
-                .position(x: baseX + 8 + 150 / 2, y: baseY)
-                .zIndex(2)
-            
-            TranscriptionView(coordinator: coordinator)
-                .position(x: baseX - coordinator.caretButtonPadding - 200 / 2, y: baseY)
-                .zIndex(2)
-        }
-        .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), value: coordinator.caretPositionInWindow)
     }
     
     func updateToolbarStates() {
@@ -208,6 +174,52 @@ struct ContentView: View {
         isLeftAlignActive   = delegate.isLeftAlignActive()
         isCenterAlignActive = delegate.isCenterAlignActive()
         isRightAlignActive  = delegate.isRightAlignActive()
+    }
+}
+
+// Wrapper that observes coordinator and repositions caret automatically
+struct CaretOverlayView: View {
+    @ObservedObject var coordinator: CaretUICoordinator
+    var body: some View {
+        SmartCaretView(coordinator: coordinator)
+            .position(x: coordinator.caretPositionInWindow.x + coordinator.uiGroupOffsetX,
+                      y: coordinator.caretPositionInWindow.y - coordinator.caretVerticalOffset)
+            .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
+                       value: coordinator.caretPositionInWindow)
+            .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1),
+                       value: coordinator.caretVerticalOffset)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: coordinator.uiGroupOffsetX)
+    }
+}
+
+// Struct to observe coordinator and update UI group offset
+struct CaretOverlaysView: View {
+    @ObservedObject var coordinator: CaretUICoordinator
+    var body: some View {
+        ZStack {
+            CaretRecordButton(coordinator: coordinator)
+                .offset(x: -(coordinator.caretButtonPadding + 5))
+
+            CaretPromptField(coordinator: coordinator)
+                .offset(x: coordinator.caretButtonPadding + coordinator.basePromptFieldWidth/2)
+
+            CaretPauseButton(coordinator: coordinator)
+                .offset(y: -coordinator.caretButtonPadding)
+            
+            CaretStopButton(coordinator: coordinator)
+                .offset(y: coordinator.caretButtonPadding + 15)
+
+            AudioWaveformView(coordinator: coordinator)
+                .offset(x: coordinator.caretButtonPadding + (120 / 2))
+            
+            TranscriptionView(coordinator: coordinator)
+                .offset(x: -coordinator.caretButtonPadding - (220 / 2))
+        }
+        .position(x: coordinator.caretPositionInWindow.x, y: coordinator.caretPositionInWindow.y - coordinator.caretVerticalOffset)
+        .offset(x: coordinator.uiGroupOffsetX)
+        .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), value: coordinator.caretPositionInWindow)
+        .animation(Animation.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.1), value: coordinator.caretVerticalOffset)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: coordinator.uiGroupOffsetX)
     }
 }
 

@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         loadEnvironmentVariables()
         performInitialChecks()
         setupDocumentController()
+        checkAndOpenWelcomeWindow()
     }
     
     private func setupDocumentController() {
@@ -150,6 +151,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 try FileManager.default.copyItem(atPath: appIconPath, toPath: iconPath.path)
             } catch {
                 print("❌ Ошибка копирования иконки: \(error)")
+            }
+        }
+    }
+    
+    private func checkAndOpenWelcomeWindow() {
+        // Даем время другим окнам восстановиться
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Проверяем все окна, кроме Welcome
+            let documentWindows = NSApplication.shared.windows.filter { window in
+                // Исключаем служебные окна и Welcome
+                !window.isFloatingPanel && 
+                window.title != "Welcome" &&
+                !window.title.contains("Settings") &&
+                window.isVisible
+            }
+            
+            // Если нет открытых окон документов, открываем Welcome
+            if documentWindows.isEmpty {
+                if let welcomeScene = NSApplication.shared.windows.first(where: { $0.title == "Welcome" }) {
+                    welcomeScene.makeKeyAndOrderFront(nil)
+                } else {
+                    // Используем селектор для открытия окна
+                    NSApp.sendAction(Selector(("openWindow:")), to: nil, from: "welcome")
+                }
             }
         }
     }

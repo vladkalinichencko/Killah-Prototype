@@ -98,6 +98,7 @@ struct SmartCaretView: View {
                         }
                 )
         }
+        .opacity(coordinator.isHidden ? 0 : 1)
     }
     
     // Local computed properties
@@ -295,13 +296,7 @@ struct CaretPromptField: View {
     var body: some View {
         TextField("Ask lil Pushkin", text: $coordinator.promptText, axis: .vertical)
             .onSubmit {
-                if let textView = (coordinator.textInsertionHandler).self as? NSTextView {
-                    let selectedRange = textView.selectedRange()
-                    let selectedText = selectedRange.length > 0 ? (textView.string as NSString).substring(with: selectedRange) : nil
-                    coordinator.generateFromTextPrompt(selectedText: selectedText)
-                } else {
-                    coordinator.generateFromTextPrompt()
-                }
+                coordinator.generateFromTextPrompt()
             }
             .font(.system(size: coordinator.promptFieldFontSize))
             .textFieldStyle(PlainTextFieldStyle())
@@ -347,6 +342,18 @@ struct CaretPromptField: View {
             .animation(caretUIAnimation, value: coordinator.promptText)
             .animation(caretUIAnimation, value: promptFieldWidth)
             .allowsHitTesting(shouldShowPromptField && coordinator.isExpanded && !coordinator.isRecording)
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear {
+                            coordinator.currentPromptFieldWidth = geo.size.width
+                        }
+                        .onChange(of: geo.size.width) { _, newVal in
+                            coordinator.currentPromptFieldWidth = newVal
+                            coordinator.updateUIGroupOffset()
+                        }
+                }
+            )
     }
     
     // Local computed properties
@@ -356,7 +363,6 @@ struct CaretPromptField: View {
     
     private var promptFieldWidth: CGFloat {
         if shouldShowPromptField {
-            // Expand when hovered OR when there's text in the field
             let expand = isPromptFieldHovered || !coordinator.promptText.isEmpty
             return expand ? coordinator.expandedPromptFieldWidth : coordinator.basePromptFieldWidth
         } else {

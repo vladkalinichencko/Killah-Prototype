@@ -13,7 +13,7 @@ struct LoadingOverlayView: View {
         .padding(.vertical, 12)
         .background(.thinMaterial)
         .clipShape(Capsule())
-        .shadow(radius: 3)
+        .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 4)
     }
 }
 

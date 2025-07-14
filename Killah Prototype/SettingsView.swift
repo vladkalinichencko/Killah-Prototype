@@ -16,8 +16,8 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: themeManager.currentTheme) { _ in
-                    applyThemeToAllWindows()
+                .onChange(of: themeManager.currentTheme) { _, _ in
+                    themeManager.applyAppTheme()
                 }
             }
 
@@ -175,10 +175,6 @@ struct SettingsView: View {
         .frame(maxHeight: .infinity)
         .onAppear {
             loadAllSettings()
-            applyThemeToAllWindows()
-        }
-        .onChange(of: themeManager.currentTheme) { _ in
-            applyThemeToAllWindows()
         }
         .sheet(isPresented: $showModelSheet) {
             ModelDownloadView(
@@ -217,14 +213,6 @@ struct SettingsView: View {
         #endif
     }
     
-    private func applyThemeToAllWindows() {
-        DispatchQueue.main.async {
-            for window in NSApplication.shared.windows {
-                themeManager.applyTheme(to: window)
-            }
-        }
-    }
-    
     private func resetDocumentsPath() {
         let defaultPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Killah").path
         documentsPath = defaultPath
@@ -246,7 +234,7 @@ struct SettingsView: View {
             UserDefaults.standard.synchronize()
             // Reload settings to reflect changes
             loadAllSettings()
-            applyThemeToAllWindows()
+            themeManager.applyAppTheme()
             
             // Show success message
             let successAlert = NSAlert()

@@ -33,8 +33,8 @@ struct Killah_PrototypeApp: App {
 
     var body: some Scene {
         #if os(macOS)
-        // Welcome окно для macOS - главное окно приложения
-        WindowGroup("Welcome") {
+        // Welcome окно для macOS - открывается программно
+        Window("Welcome", id: "welcome") {
             WelcomeView()
                 .environmentObject(llmEngine)
                 .environmentObject(audioEngine)
@@ -46,18 +46,20 @@ struct Killah_PrototypeApp: App {
                 .onAppear {
                     if let window = NSApplication.shared.windows.first(where: { $0.title == "Welcome" }) {
                         window.title = "Welcome"
-                        themeManager.applyTheme(to: window)
+                        // Enable full-size content and transparent title bar – match document windows
+                        window.styleMask.insert(.fullSizeContentView)
                         window.titlebarSeparatorStyle = .none
+                        window.titlebarAppearsTransparent = true
                         window.isMovableByWindowBackground = true
-                        window.backgroundColor = NSColor.windowBackgroundColor
-                        window.isOpaque = true
+                        window.backgroundColor = .clear
+                        window.isOpaque = false
                         window.hasShadow = true
+                        window.animationBehavior = .documentWindow
+                        window.center()
                     }
                 }
-                .onChange(of: themeManager.currentTheme) { _ in
-                    if let window = NSApplication.shared.windows.first(where: { $0.title == "Welcome" }) {
-                        themeManager.applyTheme(to: window)
-                    }
+                .onChange(of: themeManager.currentTheme) { _, _ in
+                    themeManager.applyAppTheme()
                 }
         }
         .windowStyle(.automatic)
@@ -75,9 +77,13 @@ struct Killah_PrototypeApp: App {
                 .containerBackground(.regularMaterial, for: .window)
                 .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .onAppear {
+                    // Закрываем Welcome окно при открытии документа
+                    if let welcomeWindow = NSApplication.shared.windows.first(where: { $0.title == "Welcome" }) {
+                        welcomeWindow.close()
+                    }
+                    
                     if let window = NSApplication.shared.windows.first {
                         window.title = "Untitled"
-                        themeManager.applyTheme(to: window)
                         window.styleMask.insert(.fullSizeContentView)
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
@@ -89,10 +95,8 @@ struct Killah_PrototypeApp: App {
                         window.center()
                     }
                 }
-                .onChange(of: themeManager.currentTheme) { _ in
-                    if let window = NSApplication.shared.windows.first {
-                        themeManager.applyTheme(to: window)
-                    }
+                .onChange(of: themeManager.currentTheme) { _, _ in
+                    themeManager.applyAppTheme()
                 }
         }
         .handlesExternalEvents(matching: Set(arrayLiteral: "document"))
@@ -136,18 +140,15 @@ struct Killah_PrototypeApp: App {
                 .environmentObject(themeManager)
                 .onAppear {
                     if let window = NSApplication.shared.windows.first(where: { $0.title == "Settings" }) {
-                        themeManager.applyTheme(to: window)
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
-                        window.setContentSize(NSSize(width: 400, height: 500))
+                        window.setContentSize(NSSize(width: 380, height: 520))
                         window.setFrameAutosaveName("SettingsWindow")
                         window.styleMask.insert(.resizable)
                     }
                 }
-                .onChange(of: themeManager.currentTheme) { _ in
-                    if let window = NSApplication.shared.windows.first(where: { $0.title == "Settings" }) {
-                        themeManager.applyTheme(to: window)
-                    }
+                .onChange(of: themeManager.currentTheme) { _, _ in
+                    themeManager.applyAppTheme()
                 }
         }
         .commands {

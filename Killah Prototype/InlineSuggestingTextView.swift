@@ -46,6 +46,37 @@ struct InlineSuggestingTextView: NSViewRepresentable {
         setupTextViewContent(textView, context: context)
         
         let scrollView = createScrollView(with: textView)
+        // Enable scroll notifications and observe them for caret updates
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                                               object: scrollView.contentView,
+                                               queue: .main) { [weak coordinator = context.coordinator] _ in
+            coordinator?.handleScrollEvent(in: scrollView, textView: textView)
+        }
+
+        // --- Auto-recalculate caret on window resize & textView frame change ---
+        if let window = textView.window ?? NSApplication.shared.windows.first {
+            NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification,
+                                                   object: window,
+                                                   queue: .main) { [weak coordinator = context.coordinator] _ in
+                coordinator?.forceCaretUpdate()
+            }
+        }
+
+        // Track frame changes of the textView itself (e.g. when wrapping or inset changes)
+        textView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification,
+                                               object: textView,
+                                               queue: .main) { [weak coordinator = context.coordinator] _ in
+            coordinator?.forceCaretUpdate()
+        }
+
+        // Also observe when text container layout changes (font size changes)
+        NotificationCenter.default.addObserver(forName: NSText.didChangeNotification,
+                                               object: textView,
+                                               queue: .main) { [weak coordinator = context.coordinator] _ in
+            coordinator?.forceCaretUpdate()
+        }
         
         setupCustomCaret(textView, context: context)
         
@@ -125,6 +156,39 @@ class Coordinator: NSObject, NSTextViewDelegate {
         var isProcessingAcceptOrDismiss: Bool = false
         var skipNextCompletion: Bool = false
 
+        // MARK: - Scroll handling
+        private var scrollEndWorkItem: DispatchWorkItem? = nil
+        private var isScrolling: Bool = false
+
+        /// Call this from scroll notifications to hide caret while scrolling and show after idle.
+        func handleScrollEvent(in scrollView: NSScrollView, textView: NSTextView) {
+            // Hide once at the start of scrolling
+            if !isScrolling {
+                isScrolling = true
+                caretCoordinator?.hideCaret()
+            }
+
+            // Cancel previous end-scroll work item
+            scrollEndWorkItem?.cancel()
+
+            // Schedule new one
+            let wi = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.isScrolling = false
+                // Update caret position with new offset
+                self.caretCoordinator?.updateCaretPosition(for: textView)
+                self.caretCoordinator?.showCaret()
+            }
+            scrollEndWorkItem = wi
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: wi)
+        }
+
+        /// Force a caret position recalculation (e.g. after window resize/frame change)
+        func forceCaretUpdate() {
+            guard let tv = managedTextView else { return }
+            caretCoordinator?.updateCaretPosition(for: tv)
+        }
+
         init(_ parent: InlineSuggestingTextView, llmEngine: LLMEngine, audioEngine: AudioEngine) {
             self.parent = parent
             self.llmEngine = llmEngine
@@ -146,6 +210,8 @@ class Coordinator: NSObject, NSTextViewDelegate {
         private func updateDefaultFont() {
             guard let textView = managedTextView else { return }
             textView.font = FontManager.shared.defaultEditorFont()
+            // Update caret position after font change
+            caretCoordinator?.updateCaretPosition(for: textView)
         }
     
         private enum FormattingCheck {
@@ -942,6 +1008,16 @@ class CustomInlineNSTextView: NSTextView {
     private var lastCommittedTextForChangeDetection: String = ""
     var lastMouseUpCharIndex: Int? = nil
 
+    // MARK: - Token animation queue
+    private struct PendingTokenAnimation {
+        let rect: CGRect
+        let attributedString: NSAttributedString
+        let range: NSRange
+    }
+
+    private var tokenAnimationQueue: [PendingTokenAnimation] = []
+    private var isAnimatingToken: Bool = false
+
     // Timestamp для адаптивной длительности анимации
     private var lastTokenAnimationTime: CFTimeInterval = 0
 
@@ -1236,7 +1312,7 @@ class CustomInlineNSTextView: NSTextView {
                 location: NSMaxRange(finalGhostRange) - (cleanedToken as NSString).length,
                 length: (cleanedToken as NSString).length
             )
-            animateTokenAppearance(in: tokenRange)
+            enqueueTokenAnimation(for: tokenRange)
         }
     }
 
@@ -1311,61 +1387,92 @@ class CustomInlineNSTextView: NSTextView {
         }
     }
 
-    private func animateTokenAppearance(in range: NSRange) {
+    // MARK: - Animation queue helpers
+
+    private func enqueueTokenAnimation(for range: NSRange) {
         guard let layoutManager = self.layoutManager,
               let textContainer = self.textContainer,
               let textStorage = self.textStorage else { return }
 
         layoutManager.ensureLayout(for: textContainer)
 
+        // Вычисляем исходный прямоугольник токена
         let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         var tokenRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         tokenRect.origin.x += self.textContainerOrigin.x
         tokenRect.origin.y += self.textContainerOrigin.y
 
-        // Берём реальные атрибуты токена, чтобы сохранить шрифт/стиль
+        // Захватываем актуальные атрибуты токена
         let attributedToken = NSMutableAttributedString(attributedString: textStorage.attributedSubstring(from: range))
         attributedToken.addAttribute(.foregroundColor, value: NSColor.gray, range: NSRange(location: 0, length: attributedToken.length))
 
+        let pending = PendingTokenAnimation(rect: tokenRect, attributedString: attributedToken, range: range)
+        tokenAnimationQueue.append(pending)
+        processNextTokenAnimation()
+    }
+
+    private func processNextTokenAnimation() {
+        guard !isAnimatingToken, !tokenAnimationQueue.isEmpty else { return }
+        let next = tokenAnimationQueue.removeFirst()
+        animateTokenAppearance(with: next)
+    }
+
+    private func animateTokenAppearance(with pending: PendingTokenAnimation) {
+        guard let textStorage = self.textStorage else { return }
+
+        isAnimatingToken = true
+
         // 1. Создаём временный слой для анимации
         let animatedLayer = CATextLayer()
-        animatedLayer.frame = tokenRect
-        animatedLayer.string = attributedToken
+        animatedLayer.frame = pending.rect
+        animatedLayer.string = pending.attributedString
         animatedLayer.contentsScale = self.window?.backingScaleFactor ?? 2.0
         animatedLayer.isWrapped = false
         animatedLayer.alignmentMode = .left
         self.layer?.addSublayer(animatedLayer)
 
-        // 2. Создаём простую прямоугольную маску, ширина = 0, затем анимируем до полной ширины
+        // 2. Маска
         let maskLayer = CALayer()
-        maskLayer.backgroundColor = NSColor.black.cgColor // black = видимый текст
+        maskLayer.backgroundColor = NSColor.black.cgColor
         maskLayer.frame = CGRect(origin: .zero, size: CGSize(width: 0, height: animatedLayer.bounds.height))
         animatedLayer.mask = maskLayer
 
-        // 3. Анимируем ширину маски
+        // 3. Анимация ширины
         let anim = CABasicAnimation(keyPath: "bounds.size.width")
         anim.fromValue = 0
         anim.toValue = animatedLayer.bounds.width
 
-        // Адаптивная длительность: быстрее, если токены приходят чаще
-        let now = CACurrentMediaTime()
-        let gap = now - lastTokenAnimationTime
-        var duration = 0.35
-        if lastTokenAnimationTime > 0 {
-            // чем короче пауза, тем короче анимация, чтобы она не наслаивалась
-            duration = max(0.12, min(0.4, gap * 1.5))
+        // Адаптивная длительность, которая ускоряется при накоплении токенов в очереди,
+        // чтобы визуализация не отставала от реальной скорости генерации.
+        let basePxPerSecond: CGFloat = 400 // Базовая скорость (быстрее, чем раньше)
+
+        // 1. Рассчитываем базовую длительность от ширины токена
+        var duration = Double(animatedLayer.bounds.width / basePxPerSecond)
+
+        // 2. Применяем "фактор навёрстывания", если в очереди есть ещё токены
+        let queueCount = tokenAnimationQueue.count
+        if queueCount > 0 {
+            // Ускоряемся на 15% за каждый токен в очереди
+            let catchUpFactor = pow(0.85, Double(queueCount))
+            duration *= catchUpFactor
         }
-        lastTokenAnimationTime = now
+
+        // 3. Ограничиваем итоговую длительность, чтобы избежать слишком медленных или мгновенных анимаций
+        let minDuration: CFTimeInterval = 0.04 // Не меньше 40мс
+        let maxDuration: CFTimeInterval = 0.20 // Не больше 200мс
+        duration = max(minDuration, min(maxDuration, duration))
         anim.duration = duration
         anim.timingFunction = CAMediaTimingFunction(name: .easeOut)
         anim.isRemovedOnCompletion = false
         anim.fillMode = .forwards
 
-        // 4. По завершении удаляем слой и показываем постоянный текст
+        // 4. Completion
         CATransaction.begin()
-        CATransaction.setCompletionBlock {
-            // Безопасно проверяем диапазон перед изменением атрибутов
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self = self else { return }
+            // Сделать текст постоянным (устанавливает серый цвет)
             let length = textStorage.length
+            let range = pending.range
             if range.location < length {
                 let safeLen = min(range.length, length - range.location)
                 if safeLen > 0 {
@@ -1374,6 +1481,8 @@ class CustomInlineNSTextView: NSTextView {
                 }
             }
             animatedLayer.removeFromSuperlayer()
+            self.isAnimatingToken = false
+            self.processNextTokenAnimation()
         }
         maskLayer.add(anim, forKey: "revealWidth")
         CATransaction.commit()

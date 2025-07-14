@@ -21,7 +21,7 @@ struct WelcomeView: View {
         ZStack {
             // Фон, соответствующий титлбару
             Color.clear
-                .background(.ultraThinMaterial)
+                .background(.regularMaterial)
                 .ignoresSafeArea()
             
             // Основной контент
@@ -60,11 +60,22 @@ struct WelcomeView: View {
                                         Spacer()
                                     }
                                     .frame(maxWidth: .infinity)
+                                    // Material background appears only when header is really pinned
+                                    .background(
+                                        GeometryReader { proxy in
+                                            Rectangle()
+                                                .fill(.regularMaterial)
+                                                .opacity(proxy.frame(in: .named("scroll")).minY <= 0 ? 1 : 0)
+                                        }
+                                    )
                                 }
                             }
                         }
                     }
+                    // Required coordinate space for pinned-header detection
                 }
+                .coordinateSpace(name: "scroll")
+                .padding(.top, 1) // fixed offset below title bar
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
@@ -84,7 +95,7 @@ struct WelcomeView: View {
                                 .background(
                                     Circle()
                                         .fill(.ultraThinMaterial)
-                                        .shadow(radius: 8)
+                                        .shadow(color: Color.black.opacity(0.2), radius: 14, x: 0, y: 6)
                                 )
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -99,7 +110,7 @@ struct WelcomeView: View {
                                 .background(
                                     Circle()
                                         .fill(.ultraThinMaterial)
-                                        .shadow(radius: 8)
+                                        .shadow(color: Color.black.opacity(0.2), radius: 14, x: 0, y: 6)
                                 )
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -124,6 +135,7 @@ struct WelcomeView: View {
         )
         .onAppear {
             recentDocuments = DocumentItem.loadFromDirectory()
+
         }
         .fileImporter(
             isPresented: $showingFileImporter,
@@ -153,19 +165,20 @@ struct WelcomeView: View {
         let now = Date()
         
         return Dictionary(grouping: recentDocuments) { document in
-            let daysDifference = calendar.dateComponents([.day], from: document.date, to: now).day ?? 0
-            
-            switch daysDifference {
-            case 0:
+            if calendar.isDateInToday(document.date) {
                 return .today
-            case 1:
+            } else if calendar.isDateInYesterday(document.date) {
                 return .yesterday
-            case 2...7:
-                return .lastWeek
-            case 8...30:
-                return .lastMonth
-            default:
-                return .older
+            } else {
+                let daysDifference = calendar.dateComponents([.day], from: document.date, to: now).day ?? 0
+                switch daysDifference {
+                case 2...7:
+                    return .lastWeek
+                case 8...30:
+                    return .lastMonth
+                default:
+                    return .older
+                }
             }
         }
     }
@@ -224,6 +237,15 @@ struct FileSectionView: View {
 struct DocumentCard: View {
     let document: DocumentItem
 
+    @State private var isHovering: Bool = false
+    @State private var isPersonalizing: Bool = false
+    @State private var personalized: Bool
+
+    init(document: DocumentItem) {
+        self.document = document
+        _personalized = State(initialValue: document.isPersonalized)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             RoundedRectangle(cornerRadius: 12)
@@ -257,18 +279,72 @@ struct DocumentCard: View {
                 
                 // Статус персонализации
                 HStack(spacing: 4) {
-                    Image(systemName: document.isPersonalized ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    Image(systemName: statusIcon)
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    
-                    Text(document.isPersonalized ? "Персонализирован" : "Не персонализирован")
+
+                    Text(statusText)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
+                .onHover { inside in
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isHovering = inside
+                    }
+                }
+                .onTapGesture {
+                    guard !isPersonalizing else { return }
+                    
+                    if personalized {
+                        // Depersonalize
+                        isPersonalizing = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 1_000_000_000) // чуть быстрее, чем персонализация
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                isPersonalizing = false
+                                personalized = false
+                            }
+                        }
+                    } else {
+                        // Personalize
+                        isPersonalizing = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                isPersonalizing = false
+                                personalized = true
+                            }
+                        }
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: isHovering)
             }
         }
         .frame(width: 160)
         .contentShape(Rectangle())
+    }
+
+    // MARK: - Computed Properties
+    private var statusIcon: String {
+        if isPersonalizing {
+            return personalized ? "arrow.triangle.2.circlepath.circle" : "arrow.triangle.2.circlepath"
+        }
+        if personalized {
+            return isHovering ? "arrow.uturn.backward.circle" : "checkmark.circle.fill"
+        } else {
+            return isHovering ? "checkmark.circle" : "xmark.circle.fill"
+        }
+    }
+
+    private var statusText: String {
+        if isPersonalizing {
+            return personalized ? "Сброс..." : "Персонализация..."
+        }
+        if personalized {
+            return isHovering ? "Сбросить?" : "Персонализирован"
+        } else {
+            return isHovering ? "Персонализировать?" : "Не персонализирован"
+        }
     }
 }

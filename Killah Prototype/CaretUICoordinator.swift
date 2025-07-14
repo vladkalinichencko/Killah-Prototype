@@ -12,6 +12,8 @@ class CaretUICoordinator: ObservableObject {
     @Published var triggerBounceLeft: Bool = false
     @Published var caretPositionInWindow: CGPoint = .zero
     @Published var caretSize: CGSize = CGSize(width: 2, height: 20)
+    // Visibility flag so we can hide caret while scrolling
+    @Published var isHidden: Bool = false
     
     // Basic caret state for coordinate calculations
     @Published var isExpanded: Bool = false
@@ -29,6 +31,12 @@ class CaretUICoordinator: ObservableObject {
     // LLM generation state
     @Published var isGenerating: Bool = false
     
+    // Горизонтальное смещение для всей группы UI, чтобы избежать выхода за пределы окна
+    @Published var uiGroupOffsetX: CGFloat = 0
+
+    // Текущая фактическая ширина prompt-field (измеряется через GeometryReader)
+    @Published var currentPromptFieldWidth: CGFloat = 150
+
     // Computed property - overlay should show ONLY during recording, not during processing
     var shouldShowOverlay: Bool {
         return isRecording
@@ -50,7 +58,20 @@ class CaretUICoordinator: ObservableObject {
     let basePromptFieldWidth: CGFloat = 150
     let expandedPromptFieldWidth: CGFloat = 300
     let caretButtonPadding: CGFloat = 24
-
+    
+    // Dynamic caret offset based on line height
+    var caretVerticalOffset: CGFloat {
+        // Используем правильную высоту строки вместо высоты глифа
+        let additionalOffset = lineHeight * 0.4
+        return lineHeight + additionalOffset
+    }
+    
+    // Get proper line height based on current font
+    var lineHeight: CGFloat {
+        let font = fontManager.defaultEditorFont()
+        return font.ascender - font.descender + font.leading
+    }
+    
     init(llmEngine: LLMEngine, audioEngine: AudioEngine) {
         self.llmEngine = llmEngine
         self.audioEngine = audioEngine
@@ -110,22 +131,23 @@ class CaretUICoordinator: ObservableObject {
             let glyphRange = layoutManager.glyphRange(forCharacterRange: NSRange(location: insertionPoint, length: 0), actualCharacterRange: nil)
             var localRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
 
-            // The rect is relative to the text container's origin. We need to offset it by that origin
-            // to get it into the textView's coordinate space.
+            // Offset to account for text container origin.
             let containerOrigin = textView.textContainerOrigin
             localRect.origin.x += containerOrigin.x
             localRect.origin.y += containerOrigin.y
 
-            if localRect.height > 0, let window = textView.window, let contentView = window.contentView {
-                // Конвертируем прямоугольник из локальных координат textView в координаты contentView окна
-                let rectInContentView = textView.convert(localRect, to: contentView)
+            // Convert to window coordinates (bottom-left origin).
+            if localRect.height > 0, let window = textView.window {
+                let rectInWindow = textView.convert(localRect, to: nil)
 
-                let centerX = rectInContentView.origin.x + (rectInContentView.width / 2)
-                let verticalFineTune: CGFloat = 2
-                let centerY = rectInContentView.origin.y - rectInContentView.height + verticalFineTune
+                let containerHeight = window.contentView?.bounds.height ?? 0
+
+                let centerX = rectInWindow.origin.x + (rectInWindow.width / 2)
+                // Flip Y to SwiftUI's top-left origin.
+                let centerY = containerHeight - rectInWindow.origin.y - (rectInWindow.height / 2)
 
                 finalCaretPos = CGPoint(x: centerX, y: centerY)
-                finalCaretHeight = rectInContentView.height
+                finalCaretHeight = rectInWindow.height
             }
         }
 
@@ -136,6 +158,7 @@ class CaretUICoordinator: ObservableObject {
                 if self.caretPositionInWindow != pos || self.caretSize.height != height {
                     self.caretPositionInWindow = pos
                     self.caretSize = CGSize(width: 2, height: height)
+                    
                     // If the caret moves, collapse the UI.
                     if self.isExpanded {
                         self.collapseUI()
@@ -148,15 +171,71 @@ class CaretUICoordinator: ObservableObject {
 
     // Simple state toggle without animation (views handle their own animations)
     func toggleExpanded() {
+        let wasExpanded = isExpanded
         isExpanded.toggle()
+        
+        // Пересчитываем смещение только при открытии
+        if !wasExpanded {
+            updateUIGroupOffset()
+        }
+    }
+    
+    func updateUIGroupOffset() {
+        guard let windowContentRect = NSApplication.shared.keyWindow?.contentView?.frame else {
+            print("⚠️ updateUIGroupOffset: Could not get window content rect.")
+            return
+        }
+
+        let windowWidth = windowContentRect.width
+        let margin: CGFloat = 10.0
+
+        let recordButtonWidth = menuItemSize + 12
+        let promptFieldWidthForCalc = currentPromptFieldWidth
+        let padding = caretButtonPadding
+        let caretXInWindow = caretPositionInWindow.x
+
+        let recordButtonCenterX = caretXInWindow - padding - 5
+        let uiMinX = recordButtonCenterX - (recordButtonWidth / 2)
+
+        let promptFieldCenterX = caretXInWindow + padding + (currentPromptFieldWidth / 2) + 5
+        let uiMaxX = promptFieldCenterX + (promptFieldWidthForCalc / 2)
+
+        var newOffset: CGFloat = 0
+        if uiMinX < margin {
+            newOffset = margin - uiMinX
+        } else if uiMaxX > (windowWidth - margin) {
+            newOffset = (windowWidth - margin) - uiMaxX
+        } else {
+            newOffset = 0
+        }
+        
+        // Применяем смещение с анимацией
+        if abs(newOffset - uiGroupOffsetX) > 1 {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                self.uiGroupOffsetX = newOffset
+            }
+        }
     }
     
     func setExpanded(_ expanded: Bool) {
         isExpanded = expanded
+        if !expanded {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                uiGroupOffsetX = 0
+            }
+        }
     }
     
     func collapseUI() {
         setExpanded(false)
+    }
+
+    // MARK: - Visibility helpers
+    func hideCaret() {
+        isHidden = true
+    }
+    func showCaret() {
+        isHidden = false
     }
     
     // Audio control delegation
@@ -166,6 +245,7 @@ class CaretUICoordinator: ObservableObject {
     
     func stopRecording() {
         audioEngine.stopRecording()
+        isRecording = false
     }
     
     func togglePause() {
