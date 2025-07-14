@@ -142,7 +142,6 @@ struct Killah_PrototypeApp: App {
                     if let window = NSApplication.shared.windows.first(where: { $0.title == "Settings" }) {
                         window.titlebarSeparatorStyle = .none
                         window.isMovableByWindowBackground = true
-                        window.setContentSize(NSSize(width: 380, height: 520))
                         window.setFrameAutosaveName("SettingsWindow")
                         window.styleMask.insert(.resizable)
                     }
@@ -151,6 +150,7 @@ struct Killah_PrototypeApp: App {
                     themeManager.applyAppTheme()
                 }
         }
+        .defaultSize(width: 400, height: 600)
         .commands {
             MenuCommands()
         }

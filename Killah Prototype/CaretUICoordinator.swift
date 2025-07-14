@@ -63,7 +63,7 @@ class CaretUICoordinator: ObservableObject {
     var caretVerticalOffset: CGFloat {
         // Используем правильную высоту строки вместо высоты глифа
         let additionalOffset = lineHeight * 0.4
-        return lineHeight + additionalOffset
+        return lineHeight + additionalOffset - 4
     }
     
     // Get proper line height based on current font

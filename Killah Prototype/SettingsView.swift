@@ -171,8 +171,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 250, minHeight: 450)
-        .frame(maxHeight: .infinity)
         .onAppear {
             loadAllSettings()
         }

@@ -1267,11 +1267,24 @@ class CustomInlineNSTextView: NSTextView {
         print("👻 Appending ghost token: \(cleanedToken)")
 
         ts.beginEditing()
-        let attributes: [NSAttributedString.Key: Any] = [
-            .isGhostText: true,
-            .foregroundColor: NSColor.gray.withAlphaComponent(0),
-            .font: self.font ?? NSFont.systemFont(ofSize: 16)
-        ]
+        
+        let insertionLocation = self.selectedRange.location
+        var attributes: [NSAttributedString.Key: Any]
+        
+        // If we are not at the beginning of the text, inherit attributes from the character before.
+        // This is more reliable for lists than `typingAttributes`, which might not be correctly set
+        // on a new, empty line.
+        if insertionLocation > 0 {
+            attributes = ts.attributes(at: insertionLocation - 1, effectiveRange: nil)
+        } else {
+            attributes = self.typingAttributes
+        }
+        
+        attributes[.isGhostText] = true
+        attributes[.foregroundColor] = NSColor.gray.withAlphaComponent(0)
+        if attributes[.font] == nil {
+            attributes[.font] = self.font ?? NSFont.systemFont(ofSize: 16)
+        }
         
         let insertionPointForNewSuggestion = self.selectedRange.location
 
@@ -1304,7 +1317,13 @@ class CustomInlineNSTextView: NSTextView {
             self.selectedRange = NSRange(location: finalGhostRange.location, length: 0)
             self.scrollRangeToVisible(finalGhostRange)
         }
-        self.typingAttributes[.foregroundColor] = NSColor.textColor
+        
+        // After inserting ghost text, we MUST reset the typing attributes to avoid
+        // the ghost text's grey color from "leaking" into subsequent user-typed text.
+        var newTypingAttributes = self.typingAttributes
+        newTypingAttributes[.foregroundColor] = self.textColor ?? .textColor
+        self.typingAttributes = newTypingAttributes
+
 
         // Новая анимация
         if let finalGhostRange = currentGhostTextRange {
@@ -1477,7 +1496,10 @@ class CustomInlineNSTextView: NSTextView {
                 let safeLen = min(range.length, length - range.location)
                 if safeLen > 0 {
                     let safeRange = NSRange(location: range.location, length: safeLen)
-                    textStorage.addAttribute(.foregroundColor, value: NSColor.gray, range: safeRange)
+                    // Окрашиваем в серый ТОЛЬКО если текст всё ещё помечен как ghost
+                    if textStorage.attribute(.isGhostText, at: safeRange.location, effectiveRange: nil) != nil {
+                        textStorage.addAttribute(.foregroundColor, value: NSColor.gray, range: safeRange)
+                    }
                 }
             }
             animatedLayer.removeFromSuperlayer()
