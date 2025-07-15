@@ -16,7 +16,7 @@ class ModelProxy:
             print(f"Error generating embeddings: {e}", file=sys.stderr, flush=True)
             return None
     
-    def create_completion(self, prompt, max_tokens, temperature, min_p, stream=False):
+    def create_completion(self, prompt, max_tokens, temperature, min_p, stream=True):
         payload = {
             "prompt": prompt,
             "max_tokens": max_tokens,
@@ -27,7 +27,7 @@ class ModelProxy:
         if stream:
             response = requests.post(f"{self.server_url}/completion", json=payload, stream=True)
             response.raise_for_status()
-            return response.iter_lines(decode_unicode=True)
+            return response.iter_lines(decode_unicode=False)
         else:
             response = requests.post(f"{self.server_url}/completion", json=payload)
             response.raise_for_status()

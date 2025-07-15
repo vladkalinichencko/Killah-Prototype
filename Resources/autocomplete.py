@@ -9,6 +9,7 @@ import json
 from typing import List, Optional
 from main_llm import get_model_loader
 
+sys.stdout.reconfigure(encoding='utf-8')
 # Add the script's directory to the Python path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
@@ -58,19 +59,26 @@ def stream_suggestions(model, prompt_text: str, temperature: float, min_p: float
         stream=True
     )
     buffer = ""  # Буфер для накопления данных
-    for line in response:
+    for line_bytes in response:  # Получаем байты вместо строки
+        try:
+            line = line_bytes.decode('utf-8')  # Ручное декодирование UTF-8
+        except UnicodeDecodeError:
+            continue
+            
         if line.startswith("data: "):
-            buffer += line[6:]  # Убираем "data: " и добавляем в буфер
+            buffer += line[6:]
             try:
-                data = json.loads(buffer)  # Пробуем распарсить JSON
-                buffer = ""  # Очищаем буфер после успешного парсинга
-                if "content" in data and data["content"].strip():
-                    print(f"Yielding token: {data['content']}", file=sys.stderr, flush=True)
-                    yield data["content"]  # Передаем токен
-                if data.get("stop", False):
-                    break  # Останавливаем, если генерация завершена
+                data = json.loads(buffer)
+                buffer = ""
+                if "content" in data and data["content"]:
+                    content = data["content"]
+                    # Удаляем проверку на bytes - контент всегда строка после json.loads
+                    print(f"Raw content: {repr(content)}", file=sys.stderr, flush=True)
+                    if content.strip():
+                        yield content
+                    if data.get("stop", False):
+                        break
             except json.JSONDecodeError:
-                # Если JSON не полный, продолжаем накапливать
                 continue
 
 if __name__ == "__main__":
