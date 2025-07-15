@@ -36,6 +36,7 @@ class LLMEngine: ObservableObject {
     }
 
     private var runners: [String: PythonScriptRunner] = [:]
+    private var modelServer: ModelServerRunner
     private var cancellables = Set<AnyCancellable>()
     private var currentTemperature: Float = 0.8 // Начальное значение температуры
     
@@ -43,7 +44,11 @@ class LLMEngine: ObservableObject {
         print("LLMEngine init")
         let modelDir = modelManager.getModelsDirectory().path
         
-        // Инициализация runner'ов для скриптов
+        // Initialize the model server
+        modelServer = ModelServerRunner(modelDirectory: modelDir)
+        modelServer.start() // Start the server first
+        
+        // Initialize Python script runners
         runners["audio"] = AudioScriptRunner(modelDirectory: modelDir)
         runners["autocomplete"] = AutocompleteScriptRunner(modelDirectory: modelDir)
         runners["embeddings"] = EmbeddingsRunner(modelDirectory: modelDir)
@@ -145,6 +150,7 @@ class LLMEngine: ObservableObject {
             runner.stop()
             updateEngineState(runner.state)
         } else {
+            modelServer.stop()
             runners.forEach { $0.value.stop() }
             updateEngineState(.stopped)
         }
@@ -173,5 +179,81 @@ class LLMEngine: ObservableObject {
         print("🗑️ LLMEngine deinit - Stopping engine.")
         print(Thread.callStackSymbols.joined(separator: "\n"))
         stopEngine()
+    }
+}
+
+class ModelServerRunner {
+    private var serverProcess: Process?
+    private var _state: LLMEngine.EngineState = .idle
+    private let modelDirectory: String
+
+    init(modelDirectory: String) {
+        self.modelDirectory = modelDirectory
+    }
+
+    var state: LLMEngine.EngineState {
+        return _state
+    }
+
+    func start() {
+        guard state == .idle || state == .stopped else {
+            print("ℹ️ Model server already running or starting")
+            return
+        }
+        
+        print("🚀 Starting llama-server...")
+        updateState(.starting)
+        
+        let process = Process()
+        serverProcess = process
+        
+        guard let resourcesPath = Bundle.main.resourcePath else {
+            updateState(.error("Bundle resources path not found"))
+            return
+        }
+        
+        let serverPath = resourcesPath + "/venv/bin/llama-server"
+        let modelPath = modelDirectory + "/gemma/gemma-3-4b-pt-q4_0.gguf"
+        
+        process.executableURL = URL(fileURLWithPath: serverPath)
+        process.arguments = ["-m", modelPath, "--port", "8080", "--n-gpu-layers", "1"]
+        
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+        
+        stderrPipe.fileHandleForReading.readabilityHandler = { pipe in
+            let data = pipe.availableData
+            if !data.isEmpty, let output = String(data: data, encoding: .utf8) {
+                print("🐍 llama-server STDERR: \"\(output.trimmingCharacters(in: .whitespacesAndNewlines))\"")
+                if output.contains("llama server listening") {
+                    self.updateState(.running)
+                }
+            }
+        }
+        
+        do {
+            try process.run()
+            print("✅ llama-server launched. PID: \(process.processIdentifier)")
+        } catch {
+            print("🫩 Error launching llama-server: \(error)")
+            updateState(.error("Launch fail: \(error.localizedDescription)"))
+            serverProcess = nil
+        }
+    }
+
+    func stop() {
+        if let process = serverProcess, process.isRunning {
+            process.terminate()
+            print("🛑 llama-server stopped")
+        }
+        serverProcess = nil
+        updateState(.stopped)
+    }
+
+    private func updateState(_ newState: LLMEngine.EngineState) {
+        if _state != newState {
+            print("⚙️ ModelServerRunner state changing from \(_state) to \(newState)")
+            _state = newState
+        }
     }
 }
