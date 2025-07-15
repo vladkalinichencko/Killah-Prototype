@@ -63,3 +63,7 @@ Resources/wav2vec2-xls-r-300m/
 .env.production
 .env.development
 config.env
+
+# Server files
+Resources/llama-server-macos-arm64
+Resources/llama-binaries/

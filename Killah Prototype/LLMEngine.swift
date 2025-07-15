@@ -216,7 +216,7 @@ class ModelServerRunner {
         let modelPath = modelDirectory + "/gemma/gemma-3-4b-pt-q4_0.gguf"
         
         process.executableURL = URL(fileURLWithPath: serverPath)
-        process.arguments = ["-m", modelPath, "--port", "8080", "--n-gpu-layers", "1"]
+        process.arguments = ["-m", modelPath, "--port", "8080", "--host", "localhost", "--n-gpu-layers", "1"]
         
         let stderrPipe = Pipe()
         process.standardError = stderrPipe

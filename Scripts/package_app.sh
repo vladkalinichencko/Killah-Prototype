@@ -159,13 +159,6 @@ for LIB in "${LIBRARIES[@]}"; do
     if [ $? -eq 0 ]; then
       echo "✅ Successfully copied $LIB"
       chmod +x "$LIB_DST"
-      codesign --force --sign - "$LIB_DST"
-      if [ $? -eq 0 ]; then
-        echo "✅ Successfully signed $LIB"
-      else
-        echo "❌ Failed to sign $LIB"
-        exit 1
-      fi
     else
       echo "❌ Failed to copy $LIB from $LIB_SRC"
       exit 1
@@ -176,19 +169,29 @@ for LIB in "${LIBRARIES[@]}"; do
   fi
 done
 
-# Настраиваем @rpath для библиотек (рекурсивно)
+# Настраиваем @rpath для библиотек
 echo "🔧 Configuring @rpath for libraries..."
 for LIB in "${LIBRARIES[@]}"; do
   LIB_DST="$FRAMEWORKS_DIR/$LIB"
   if [ -f "$LIB_DST" ]; then
-    install_name_tool -add_rpath "@executable_path/../Frameworks" "$LIB_DST"
+    install_name_tool -add_rpath "@loader_path/../Frameworks" "$LIB_DST"
     for DEP in "${LIBRARIES[@]}"; do
-      install_name_tool -change "@rpath/$DEP" "@executable_path/../Frameworks/$DEP" "$LIB_DST"
+      install_name_tool -change "@rpath/$DEP" "@loader_path/../Frameworks/$DEP" "$LIB_DST"
     done
     if [ $? -eq 0 ]; then
       echo "✅ Updated @rpath for $LIB"
     else
       echo "❌ Failed to update @rpath for $LIB"
+      exit 1
+    fi
+    
+    # Подписываем библиотеку после всех изменений
+    echo "🔧 Signing $LIB..."
+    codesign --force --sign - "$LIB_DST"
+    if [ $? -eq 0 ]; then
+      echo "✅ Successfully signed $LIB"
+    else
+      echo "❌ Failed to sign $LIB"
       exit 1
     fi
   else
@@ -200,6 +203,11 @@ done
 # Настраиваем @rpath для llama-server
 echo "🔧 Configuring @rpath for llama-server..."
 LLAMA_SERVER_BIN="$VENV_DST/bin/llama-server"
+
+# Удаляем существующую подпись перед изменениями
+echo "🔧 Removing existing signature from llama-server..."
+codesign --remove-signature "$LLAMA_SERVER_BIN" 2>/dev/null || true
+
 install_name_tool -add_rpath "@executable_path/../../../Frameworks" "$LLAMA_SERVER_BIN"
 if [ $? -eq 0 ]; then
   echo "✅ Added @rpath for Frameworks"
@@ -218,14 +226,7 @@ for LIB in "${LIBRARIES[@]}"; do
   fi
 done
 
-# Удаляем карантин для всех файлов
-echo "🔧 Removing quarantine attributes..."
-for LIB in "${LIBRARIES[@]}"; do
-  sudo xattr -rd com.apple.quarantine "$FRAMEWORKS_DIR/$LIB" 2>/dev/null || true
-done
-sudo xattr -rd com.apple.quarantine "$LLAMA_SERVER_BIN" 2>/dev/null || true
-
-# Подписываем llama-server
+# Подписываем llama-server после всех изменений
 echo "🔧 Signing llama-server binary..."
 codesign --force --sign - "$LLAMA_SERVER_BIN"
 if [ $? -eq 0 ]; then
@@ -234,6 +235,13 @@ else
   echo "❌ Failed to sign llama-server"
   exit 1
 fi
+
+# Удаляем карантин для всех файлов
+echo "🔧 Removing quarantine attributes..."
+for LIB in "${LIBRARIES[@]}"; do
+  sudo xattr -rd com.apple.quarantine "$FRAMEWORKS_DIR/$LIB" 2>/dev/null || true
+done
+sudo xattr -rd com.apple.quarantine "$LLAMA_SERVER_BIN" 2>/dev/null || true
 
 echo "🔧 Activating virtual environment and installing packages..."
 source "$VENV_DST/bin/activate"
