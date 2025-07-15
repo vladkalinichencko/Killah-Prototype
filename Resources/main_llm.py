@@ -16,7 +16,7 @@ class ModelProxy:
             print(f"Error generating embeddings: {e}", file=sys.stderr, flush=True)
             return None
     
-    def create_completion(self, prompt, max_tokens, temperature, min_p, stream=True):
+    def create_completion(self, prompt, max_tokens, temperature, min_p, stream=True, lora_adapter=None):
         payload = {
             "prompt": prompt,
             "max_tokens": max_tokens,
@@ -24,6 +24,8 @@ class ModelProxy:
             "min_p": min_p,
             "stream": stream
         }
+        if lora_adapter:
+            payload["lora_adapters"] = [{"path": lora_adapter, "scale": 1.0}]
         if stream:
             response = requests.post(f"{self.server_url}/completion", json=payload, stream=True)
             response.raise_for_status()

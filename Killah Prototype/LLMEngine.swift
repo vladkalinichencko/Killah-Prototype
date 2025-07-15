@@ -81,6 +81,7 @@ class LLMEngine: ObservableObject {
     func generateSuggestion(
         for script: String,
         prompt: String,
+        loraAdapter: String? = nil, // Новый параметр для LoRA
         tokenStreamCallback: @escaping (String) -> Void,
         onComplete: @escaping (Result<String, LLMError>) -> Void
     ) {
@@ -114,17 +115,42 @@ class LLMEngine: ObservableObject {
             return
         }
         print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\"")
-        runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback,
-            onComplete: { result in
-            switch result {
-            case .success(let suggestion):
-                print("Saving suggestion to cache for prompt \"\(prompt)\"")
-                CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
-                onComplete(.success(suggestion))
-            case .failure(let error):
-                onComplete(.failure(error))
+        // Применяем LoRA-адаптер перед отправкой промпта, если он указан
+        if script == "autocomplete", let loraAdapter = loraAdapter {
+            modelServer.applyLoraAdapter(adapterName: loraAdapter) { result in
+                switch result {
+                case .success:
+                    print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\" using LoRA: \(loraAdapter)")
+                    runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback,
+                        onComplete: { result in
+                        switch result {
+                        case .success(let suggestion):
+                            print("Saving suggestion to cache for prompt \"\(prompt)\"")
+                            CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
+                            onComplete(.success(suggestion))
+                        case .failure(let error):
+                            onComplete(.failure(error))
+                        }
+                    })
+                case .failure(let error):
+                    print("🫩 Failed to apply LoRA adapter: \(error)")
+                    onComplete(.failure(.scriptError("Failed to apply LoRA adapter: \(error.localizedDescription)")))
+                }
             }
-        })
+        } else {
+            print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\"")
+            runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback,
+                onComplete: { result in
+                switch result {
+                case .success(let suggestion):
+                    print("Saving suggestion to cache for prompt \"\(prompt)\"")
+                    CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
+                    onComplete(.success(suggestion))
+                case .failure(let error):
+                    onComplete(.failure(error))
+                }
+            })
+        }
         updateEngineState(runner.state)
     }
     
@@ -186,9 +212,15 @@ class ModelServerRunner {
     private var serverProcess: Process?
     private var _state: LLMEngine.EngineState = .idle
     private let modelDirectory: String
+    private let loraAdapters: [String] // Список LoRA-адаптеров
 
     init(modelDirectory: String) {
         self.modelDirectory = modelDirectory
+        let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                    .appendingPathComponent("KillahPrototype/models/lora").path
+        self.loraAdapters = [
+                "\(appSupportDir)/autocomplete_lora.gguf"
+                ] // Список всех LoRA-адаптеров
     }
 
     var state: LLMEngine.EngineState {
@@ -215,8 +247,23 @@ class ModelServerRunner {
         let serverPath = resourcesPath + "/venv/bin/llama-server"
         let modelPath = modelDirectory + "/gemma/gemma-3-4b-pt-q4_0.gguf"
         
+        var arguments = [
+            "-m", modelPath,
+            "--port", "8080",
+            "--host", "localhost",
+            "--n-gpu-layers", "1",
+            "--embedding",
+            "--lora-init-without-apply" // Загружаем адаптеры без применения
+        ]
+        
+        // Добавляем все LoRA-адаптеры
+        for loraPath in loraAdapters {
+            arguments.append("--lora")
+            arguments.append(loraPath)
+        }
+        
         process.executableURL = URL(fileURLWithPath: serverPath)
-        process.arguments = ["-m", modelPath, "--port", "8080", "--host", "localhost", "--n-gpu-layers", "1"]
+        process.arguments = arguments
         
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
@@ -250,6 +297,46 @@ class ModelServerRunner {
         updateState(.stopped)
     }
 
+    // Функция для применения LoRA-адаптера через API
+    func applyLoraAdapter(adapterName: String, scale: Float = 1.0, completion: @escaping (Result<Void, Error>) -> Void) {
+        let url = URL(string: "http://localhost:8080/lora-adapters")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "adapters": [
+                [
+                    "path": adapterName, // Например, "lora/autocomplete_lora.gguf"
+                    "scale": scale
+                ]
+            ]
+        ]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("🫩 Error applying LoRA adapter: \(error)")
+                completion(.failure(error))
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                print("✅ Applied LoRA adapter: \(adapterName)")
+                completion(.success(()))
+            } else {
+                let error = NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to apply LoRA adapter"])
+                completion(.failure(error))
+            }
+        }.resume()
+    }
+    
     private func updateState(_ newState: LLMEngine.EngineState) {
         if _state != newState {
             print("⚙️ ModelServerRunner state changing from \(_state) to \(newState)")

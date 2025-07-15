@@ -98,7 +98,12 @@ class ModelManager: NSObject, ObservableObject {
                 dirName: "checkpoints",
                 repoID: "poinka/checkpoints",
                 requiredFiles: ["latest_checkpoint_bs4_epoch_1_step_4300.pt"]
-            )
+        ),
+            ModelFile(
+                dirName: "lora",
+                repoID: "poinka/lora_for_gemma",
+                requiredFiles: ["autocomplete_lora.gguf"]
+        )
         
         // Any other models like MLP projectors or LoRA adapters can be added here.
         // If they are single files, they don't need to be zipped.

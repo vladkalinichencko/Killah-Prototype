@@ -50,13 +50,14 @@ def initialize_model():
         print("Model server did not start within timeout.", file=sys.stderr, flush=True)
         return None
 
-def stream_suggestions(model, prompt_text: str, temperature: float, min_p: float = 0.1):
+def stream_suggestions(model, prompt_text: str, temperature: float, min_p: float = 0.1, lora_adapter: str = None):
     response = model.create_completion(
         prompt=prompt_text,
         max_tokens=MAX_SUGGESTION_TOKENS,
         temperature=temperature,
         min_p=min_p,
-        stream=True
+        stream=True,
+        lora_adapter=lora_adapter
     )
     buffer = ""  # Буфер для накопления данных
     for line_bytes in response:  # Получаем байты вместо строки
@@ -91,6 +92,7 @@ if __name__ == "__main__":
     current_prompt = None
     interrupted = False
     current_temperature = 0.8
+    current_lora_adapter = "lora/autocomplete_lora.gguf"
     
     while True:
         try:
@@ -130,7 +132,7 @@ if __name__ == "__main__":
 
                 if prompt_to_process:
                     print("STREAM", flush=True)
-                    for token in stream_suggestions(model, prompt_to_process, current_temperature):
+                    for token in stream_suggestions(model, prompt_to_process, current_temperature, current_lora_adapter):
                         if interrupted:
                             break
                         print(token, flush=True)
