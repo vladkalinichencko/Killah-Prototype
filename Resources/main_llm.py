@@ -9,9 +9,17 @@ class ModelProxy:
     
     def embed(self, text):
         try:
-            response = requests.post(f"{self.server_url}/embedding", json={"text": text})
+            response = requests.post(f"{self.server_url}/embedding", json={"content": text})
             response.raise_for_status()
-            return response.json()["embedding"]
+            response_json = response.json()
+            embedding = response_json[0]["embedding"]
+            if embedding is None:
+                print(f"Error: 'embedding' key not found in response", file=sys.stderr, flush=True)
+                return None
+            if not isinstance(embedding, list):
+                print(f"Error: 'embedding' is not a list, got {type(embedding)}", file=sys.stderr, flush=True)
+                return None
+            return embedding
         except Exception as e:
             print(f"Error generating embeddings: {e}", file=sys.stderr, flush=True)
             return None

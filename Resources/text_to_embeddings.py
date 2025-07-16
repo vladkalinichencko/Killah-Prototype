@@ -32,7 +32,7 @@ class TextEmbeddingGenerator:
             print(f"Generated embeddings shape: {embeddings_tensor.shape}", file=sys.stderr, flush=True)
             return embeddings_tensor
         except Exception as e:
-            print(f"Error generating embeddings: {e}", file=sys.stderr, flush=True)
+            print(f"Error generating embeddings: {e}. Text {text}", file=sys.stderr, flush=True)
             return None
 
     def process_text(self, text, output_file):
