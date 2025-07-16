@@ -87,7 +87,7 @@ class TrainingConfig:
 
     # Training parameters
     batch_size_stage1: int = 8
-    batch_size_stage2: int = 6
+    batch_size_stage2: int = 4
     gradient_accumulation_steps: int = 4
     epochs_stage1: int = 1000
     epochs_stage2: int = 1000
@@ -112,7 +112,7 @@ class TrainingConfig:
 
     # W&B
     wandb_project: str = "audio-llm-asr"
-    wandb_name: str = "stage1-run-experiment"
+    wandb_name: str = "stage2-run-experiment"
     wandb_api_key: str = ""
 
     # Quantization
@@ -123,6 +123,9 @@ class TrainingConfig:
     # Optimal Transport
     sinkhorn_loss_weight_stage1: float = 1.0
     sinkhorn_loss_weight_stage2: float = 0.1
+    max_ot_points_stage1: int = 1000  # cap OT point cloud size for Stage 1
+    max_ot_points_stage2: int = 128   # much smaller for Stage 2 to save memory
+    ot_use_fp16: bool = True          # compute Sinkhorn in FP16 to reduce memory
 
     # NEW: Debug flag to train on a single sample and log detailed diagnostics
     debug_overfit: bool = True
@@ -649,17 +652,24 @@ def train(config: TrainingConfig, stage: int):
         
         print(f"Resumed from Epoch {start_epoch}, Step {global_step}, Batch {start_batch_idx}")
     elif stage == 2:
-        stage1_checkpoint_path = os.path.join(config.output_dir, "stage_1_best.pt")
+        # Prefer the most recent checkpoint from Stage-1 to continue training seamlessly
+        stage1_checkpoint_path = os.path.join(config.output_dir, "stage_1_latest.pt")
+        adapter_path = os.path.join(config.output_dir, "latest_adapter")
+
+        # Fallback to best-scoring checkpoint if latest is not available (older runs)
+        if not os.path.exists(stage1_checkpoint_path):
+            stage1_checkpoint_path = os.path.join(config.output_dir, "stage_1_best.pt")
+            adapter_path = os.path.join(config.output_dir, "best_adapter")
+
         if os.path.exists(stage1_checkpoint_path):
-            print(f"Initializing Stage 2 with best checkpoint from Stage 1: {stage1_checkpoint_path}")
+            print(f"Initializing Stage 2 from Stage 1 checkpoint: {stage1_checkpoint_path}")
             checkpoint = torch.load(stage1_checkpoint_path, map_location=device)
             projector.load_state_dict(checkpoint['projector_state_dict'])
-            adapter_path_best = os.path.join(config.output_dir, "best_adapter")
-            if os.path.isdir(adapter_path_best):
-                llm.load_adapter(adapter_path_best, adapter_name="default", is_trainable=True)
-                print(f"Loaded adapter from {adapter_path_best}.")
+            if os.path.isdir(adapter_path):
+                llm.load_adapter(adapter_path, adapter_name="default", is_trainable=True)
+                print(f"Loaded adapter from {adapter_path}.")
             else:
-                print(f"Adapter directory {adapter_path_best} not found. Proceeding without loading adapter.")
+                print(f"Adapter directory {adapter_path} not found. Proceeding without loading adapter.")
         else:
             print("Warning: Stage 1 checkpoint not found for Stage 2 initialization.")
 
@@ -820,7 +830,7 @@ def train(config: TrainingConfig, stage: int):
                 # 1. Генерируем токены
                 gen_prompt = torch.cat([
                     prompt_embeds['user'].unsqueeze(0),
-                    projected_embeds[0:1],
+                    quantized_embeds[0:1],
                     prompt_embeds['assistant'].unsqueeze(0)
                 ], dim=1)
                 
@@ -896,19 +906,32 @@ def train(config: TrainingConfig, stage: int):
                     # For audio, we match against all projected frames
                     flat_audio = audio_for_ot.view(-1, audio_for_ot.size(-1))
                     
-                    # To fairly compare the two "clouds" of points, we can sample 
-                    # from the larger cloud to match the size of the smaller one.
-                    # This avoids distortion if one cloud is much denser.
-                    if flat_audio.shape[0] > flat_valid_text.shape[0]:
-                        # Audio cloud is larger, sample from it
-                        rand_indices = torch.randperm(flat_audio.shape[0])[:flat_valid_text.shape[0]]
-                        flat_audio_sampled = flat_audio[rand_indices]
-                        ot_loss = sinkhorn_loss_fn(flat_audio_sampled, flat_valid_text)
+                    # Determine stage-specific cap on OT points
+                    max_ot_points = config.max_ot_points_stage1 if stage == 1 else config.max_ot_points_stage2
+
+                    # Sub-sample both clouds to at most max_ot_points to limit memory
+                    if flat_audio.shape[0] > max_ot_points:
+                        flat_audio = flat_audio[torch.randperm(flat_audio.shape[0], device=flat_audio.device)[:max_ot_points]]
+                    if flat_valid_text.shape[0] > max_ot_points:
+                        flat_valid_text = flat_valid_text[torch.randperm(flat_valid_text.shape[0], device=flat_valid_text.device)[:max_ot_points]]
+
+                    # Optionally cast to FP16 for Sinkhorn computation
+                    if config.ot_use_fp16 and device.type == "cuda":
+                        flat_audio_sink = flat_audio.to(torch.float16)
+                        flat_valid_text_sink = flat_valid_text.to(torch.float16)
                     else:
-                        # Text cloud is larger or equal, sample from it
-                        rand_indices = torch.randperm(flat_valid_text.shape[0])[:flat_audio.shape[0]]
-                        flat_valid_text_sampled = flat_valid_text[rand_indices]
-                        ot_loss = sinkhorn_loss_fn(flat_audio, flat_valid_text_sampled)
+                        flat_audio_sink = flat_audio
+                        flat_valid_text_sink = flat_valid_text
+
+                    # Balance sizes again if unequal after sampling
+                    if flat_audio_sink.shape[0] > flat_valid_text_sink.shape[0]:
+                        rand_indices = torch.randperm(flat_audio_sink.shape[0], device=device)[:flat_valid_text_sink.shape[0]]
+                        flat_audio_sink = flat_audio_sink[rand_indices]
+                    else:
+                        rand_indices = torch.randperm(flat_valid_text_sink.shape[0], device=device)[:flat_audio_sink.shape[0]]
+                        flat_valid_text_sink = flat_valid_text_sink[rand_indices]
+
+                    ot_loss = sinkhorn_loss_fn(flat_audio_sink, flat_valid_text_sink)
                 else:
                     ot_loss = torch.tensor(0.0, device=device)
                 
@@ -924,7 +947,12 @@ def train(config: TrainingConfig, stage: int):
                     gen_text = tokenizer.decode(gen_ids[0, gen_prompt.size(1):], skip_special_tokens=True)
                     target_text = tokenizer.decode([tid.item() for tid in target_ids[0] if tid != -100], skip_special_tokens=True)
                     
-                    audio_as_token_ids = indices[0]
+                    # Ensure audio_as_token_ids is 1-D for concatenation; if soft discretization (indices is 3-D),
+                    # take the first of the top-k indices for each time step.
+                    if indices.ndim == 3:
+                        audio_as_token_ids = indices[0, :, 0]
+                    else:
+                        audio_as_token_ids = indices[0]
                     input_prompt_ids = torch.cat([user_prompt_tokens.squeeze(0), audio_as_token_ids, assistant_prompt_tokens.squeeze(0)])
                     full_input_for_log = torch.cat([input_prompt_ids, shifted_target_ids[0]]).detach().cpu().tolist()
                     labels_for_log = labels[0, input_prompt_ids.size(0):].detach().cpu().tolist()
@@ -962,13 +990,34 @@ def train(config: TrainingConfig, stage: int):
                 scaler.unscale_(optimizer)
                 
                 # --- Grad Norm Metrics ---
-                grad_norm_before_clip = 0
+                grad_norm_before_clip = 0.0
                 for p in params_to_train:
                     if p.grad is not None:
                         param_norm = p.grad.detach().data.norm(2)
                         grad_norm_before_clip += param_norm.item() ** 2
-                grad_norm_before_clip = (grad_norm_before_clip ** 0.5) if grad_norm_before_clip > 0 else 0.0
+                grad_norm_before_clip = grad_norm_before_clip ** 0.5 if grad_norm_before_clip > 0 else 0.0
 
+                # NEW: component-wise gradient norms
+                projector_grad_norm = 0.0
+                for p in projector.parameters():
+                    if p.grad is not None:
+                        projector_grad_norm += p.grad.detach().data.norm(2).item() ** 2
+                projector_grad_norm = projector_grad_norm ** 0.5 if projector_grad_norm > 0 else 0.0
+
+                lora_grad_norm = 0.0
+                for name, p in llm.named_parameters():
+                    if p.grad is None:
+                        continue
+                    if "lora" in name.lower():
+                        lora_grad_norm += p.grad.detach().data.norm(2).item() ** 2
+                lora_grad_norm = lora_grad_norm ** 0.5 if lora_grad_norm > 0 else 0.0
+
+                embed_grad_norm = 0.0
+                embed_param = llm.get_input_embeddings().weight
+                if embed_param.grad is not None:
+                    embed_grad_norm = embed_param.grad.detach().data.norm(2).item()
+
+                # Clip gradients after calculating norms
                 torch.nn.utils.clip_grad_norm_(params_to_train, config.clip_threshold)
                 
                 # --- Projector grad diagnostics ---
@@ -984,7 +1033,11 @@ def train(config: TrainingConfig, stage: int):
 
                 scaler.step(optimizer)
                 scaler.update()
-            
+
+                # Free cached memory after optimizer step to reduce fragmentation
+                if device.type == "cuda":
+                    torch.cuda.empty_cache()
+                
                 if stage == 1:
                     if global_step < config.warmup_steps:
                         scheduler.step()
@@ -1014,13 +1067,16 @@ def train(config: TrainingConfig, stage: int):
                 })
 
                 if global_step % config.log_every_n_steps == 0:
-                    pbar.write(f"Step {global_step} | Train Loss: {loss.item()*config.gradient_accumulation_steps:.4f} | CE: {ce_loss.item():.4f} | OT: {ot_loss.item():.4f}")
+                    pbar.write(f"Step {global_step} | Train Loss: {loss.item()*config.gradient_accumulation_steps:.4f} | CE: {ce_loss.item():.4f} | OT: {ot_loss.item():.4f} | Grad(P/L/E): {projector_grad_norm:.2f}/{lora_grad_norm:.2f}/{embed_grad_norm:.2f}")
                     if wandb.run and not wandb.run.disabled:
                         gpu_mem_max = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
                         wandb.log({
                             "train/loss": loss.item()*config.gradient_accumulation_steps,
                             "train/ce_loss": ce_loss.item(),
                             "train/sinkhorn_loss": ot_loss.item(),
+                            "train/grad_norm_projector": projector_grad_norm,
+                            "train/grad_norm_lora": lora_grad_norm,
+                            "train/grad_norm_embedding": embed_grad_norm,
                             "learning_rate": optimizer.param_groups[0]['lr'],
                             "proj_grad_mean": proj_grad_mean,
                             "step": global_step,
@@ -1115,7 +1171,7 @@ def train(config: TrainingConfig, stage: int):
 # ----------------------------
 if __name__ == "__main__":
     # --- CHOOSE STAGE ---
-    STAGE = 1  # ← run Stage 1 for overfit test
+    STAGE = 2  # ← run Stage 2 for fine-tuning
     # --------------------
 
     config = TrainingConfig()
