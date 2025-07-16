@@ -132,7 +132,8 @@ if __name__ == "__main__":
 
                 if prompt_to_process:
                     print("STREAM", flush=True)
-                    for token in stream_suggestions(model, prompt_to_process, current_temperature, current_lora_adapter):
+                    # Исправляем порядок аргументов
+                    for token in stream_suggestions(model, prompt_to_process, current_temperature, min_p=0.1, lora_adapter=current_lora_adapter):
                         if interrupted:
                             break
                         print(token, flush=True)
