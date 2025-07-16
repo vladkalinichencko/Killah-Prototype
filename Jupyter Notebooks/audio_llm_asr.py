@@ -373,15 +373,16 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
             quantized_embeds,
             prompt_embeds['assistant'].expand(quantized_embeds.size(0), -1, -1)
         ], dim=1)
-
-        generated_ids = model.llm.generate(
-            inputs_embeds=generation_prompt_embeds.to(dtype),
-            max_new_tokens=config.max_new_tokens,
-            num_beams=config.beam_size,
-            eos_token_id=tokenizer.eos_token_id,
-            pad_token_id=tokenizer.pad_token_id,
-            use_cache=False,
-        )
+        
+        with autocast(device_type=device.type, dtype=dtype, enabled=(device.type != 'cpu')):
+            generated_ids = model.llm.generate(
+                inputs_embeds=generation_prompt_embeds.to(dtype),
+                max_new_tokens=config.max_new_tokens,
+                num_beams=config.beam_size,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id,
+                use_cache=False,
+            )
 
         for i in range(len(generated_ids)):
             # Decode only the newly generated tokens
