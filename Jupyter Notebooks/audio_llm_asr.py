@@ -42,6 +42,7 @@ import warnings
 from transformers.utils import logging as hf_logging
 import matplotlib.pyplot as plt
 from umap import UMAP
+from geomloss import SamplesLoss  # NEW: Import for Sinkhorn Divergence
 
 hf_logging.set_verbosity_error()
 # Suppress specific repetitive warnings
@@ -119,12 +120,10 @@ class TrainingConfig:
     bnb_compute_dtype: str = "bfloat16"
     hf_token: str = ""
 
-    # Diversity loss
-    diversity_weight: float = 0.5
-    # Cosine similarity regularization
-    cosine_sim_weight: float = 0.2
-    # MSE regularization
-    proj_mse_weight: float = 0.1
+    # Optimal Transport
+    sinkhorn_loss_weight_stage1: float = 1.0
+    sinkhorn_loss_weight_stage2: float = 0.1
+
     # NEW: Debug flag to train on a single sample and log detailed diagnostics
     debug_overfit: bool = True
 
@@ -673,6 +672,10 @@ def train(config: TrainingConfig, stage: int):
     # --- Projector weight history for norm diff ---
     prev_proj_weights = None
 
+    # NEW: Create Sinkhorn Divergence object for Optimal Transport loss
+    sinkhorn_loss_fn = SamplesLoss(loss="sinkhorn", p=2, blur=0.05, backend="tensorized")
+
+
     for epoch in range(start_epoch, epochs):
         model.train()
         projector.train()
@@ -865,32 +868,58 @@ def train(config: TrainingConfig, stage: int):
 
                 # 3. Get model outputs and calculate the main loss
                 outputs = model(inputs_embeds=inputs_embeds, labels=labels)
-                loss = outputs.loss
+                ce_loss = outputs.loss
 
-                # --- Diversity (token-usage) regularization ---
-                hard_indices = indices[..., 0] if indices.ndim == 3 else indices
-                flat_idx = hard_indices.view(-1)
-                token_counts = torch.bincount(flat_idx, minlength=codebook.size(0)).float()
-                token_probs = token_counts / (token_counts.sum() + 1e-6)
-                entropy = -(token_probs * (token_probs + 1e-9).log()).sum()
-                norm_entropy = entropy / math.log(token_probs.numel())
-                diversity_loss = (1.0 - norm_entropy)
-
-                # Regularizations
-                proj_mse_loss = F.mse_loss(projected_embeds, quantized_embeds.detach())
+                # --- 4. NEW: Optimal Transport Loss (Sinkhorn Divergence) ---
+                # We want to match the distribution of projected audio embeds 
+                # to the distribution of the *actual* text embeddings.
                 
-                # --- Re-enable additional losses for Stage 1 ---
-                loss = (
-                    loss +
-                    config.diversity_weight * diversity_loss +
-                    config.cosine_sim_weight * (1.0 - cosine_sim) +
-                    config.proj_mse_weight * proj_mse_loss
-                )
+                # Create a mask to select only non-padding text embeddings
+                valid_text_mask = (target_ids != -100) # Shape: (B, T_text)
+                
+                # Use the mask to get the number of valid tokens per sample
+                num_valid_tokens = valid_text_mask.sum(dim=1)
+
+                # We can only compute loss for samples that have text
+                valid_batch_indices = torch.where(num_valid_tokens > 0)[0]
+
+                if valid_batch_indices.numel() > 0:
+                    # Select only the valid samples from the batch
+                    audio_for_ot = projected_embeds[valid_batch_indices]
+                    text_for_ot = target_embeds[valid_batch_indices]
+                    mask_for_ot = valid_text_mask[valid_batch_indices]
+                    
+                    # Flatten the text embeddings and use the mask to filter them
+                    # Result is a single tensor of all valid text embeddings in the batch
+                    flat_valid_text = text_for_ot[mask_for_ot]
+
+                    # For audio, we match against all projected frames
+                    flat_audio = audio_for_ot.view(-1, audio_for_ot.size(-1))
+                    
+                    # To fairly compare the two "clouds" of points, we can sample 
+                    # from the larger cloud to match the size of the smaller one.
+                    # This avoids distortion if one cloud is much denser.
+                    if flat_audio.shape[0] > flat_valid_text.shape[0]:
+                        # Audio cloud is larger, sample from it
+                        rand_indices = torch.randperm(flat_audio.shape[0])[:flat_valid_text.shape[0]]
+                        flat_audio_sampled = flat_audio[rand_indices]
+                        ot_loss = sinkhorn_loss_fn(flat_audio_sampled, flat_valid_text)
+                    else:
+                        # Text cloud is larger or equal, sample from it
+                        rand_indices = torch.randperm(flat_valid_text.shape[0])[:flat_audio.shape[0]]
+                        flat_valid_text_sampled = flat_valid_text[rand_indices]
+                        ot_loss = sinkhorn_loss_fn(flat_audio, flat_valid_text_sampled)
+                else:
+                    ot_loss = torch.tensor(0.0, device=device)
+                
+                # --- 5. Combine losses ---
+                sinkhorn_weight = config.sinkhorn_loss_weight_stage1 if stage == 1 else config.sinkhorn_loss_weight_stage2
+                loss = ce_loss + (sinkhorn_weight * ot_loss)
                 
                 # Apply gradient accumulation
                 loss = loss / config.gradient_accumulation_steps
                 
-                # 4. Detailed Logging (using variables prepared above)
+                # 6. Detailed Logging (using variables prepared above)
                 with torch.no_grad():
                     gen_text = tokenizer.decode(gen_ids[0, gen_prompt.size(1):], skip_special_tokens=True)
                     target_text = tokenizer.decode([tid.item() for tid in target_ids[0] if tid != -100], skip_special_tokens=True)
@@ -902,15 +931,18 @@ def train(config: TrainingConfig, stage: int):
                     
                     decoded_input = tokenizer.decode(full_input_for_log, skip_special_tokens=False)
                     decoded_labels = tokenizer.decode([l for l in labels_for_log if l != -100], skip_special_tokens=False)
+                    generated_ids_for_log = gen_ids[0, gen_prompt.size(1):].detach().cpu().tolist()
 
                     pbar.write(f"\n--- Sample Input/Output (Step {global_step}) ---")
-                    pbar.write(f"  [INPUT TO LLM]   : {decoded_input}")
-                    pbar.write(f"  [LABELS FOR LOSS]: {decoded_labels}")
-                    pbar.write(f"  [LLM GENERATED]  : {gen_text}\n")
+                    pbar.write(f"  [INPUT TO LLM]        : {decoded_input}")
+                    pbar.write(f"  [LABELS FOR LOSS]     : {decoded_labels}")
+                    pbar.write(f"  [LLM GENERATED TEXT]  : {gen_text}")
+                    pbar.write(f"  [LLM GENERATED TOKENS]: {generated_ids_for_log}\n")
                     
                     log_dict = {
                         "sample/target_text": target_text,
                         "sample/llm_generated_text": gen_text,
+                        "sample/llm_generated_token_ids": generated_ids_for_log,
                         "sample/decoded_input": decoded_input,
                         "sample/decoded_labels": decoded_labels
                     }
@@ -975,22 +1007,20 @@ def train(config: TrainingConfig, stage: int):
                 pbar.set_postfix({
                     "loss": f"{loss.item()*config.gradient_accumulation_steps:.3f}", 
                     "lr": f"{optimizer.param_groups[0]['lr']:.2e}",
-                    "gn": f"{grad_norm_after_clip:.2f}",
-                    "cos_sim": f"{cosine_sim_metric:.2f}",
-                    "proj_gm": f"{proj_grad_mean:.3e}",
+                    "ce_loss": f"{ce_loss.item():.3f}",
+                    "ot_loss": f"{ot_loss.item():.3f}",
                     "mem_gb": f"{gpu_mem_alloc:.2f}",
                     "time": datetime.now().strftime("%H:%M:%S")
                 })
 
                 if global_step % config.log_every_n_steps == 0:
-                    pbar.write(f"Step {global_step} | Train Loss: {loss.item()*config.gradient_accumulation_steps:.4f} | ProjGrad: {proj_grad_mean:.3e}")
+                    pbar.write(f"Step {global_step} | Train Loss: {loss.item()*config.gradient_accumulation_steps:.4f} | CE: {ce_loss.item():.4f} | OT: {ot_loss.item():.4f}")
                     if wandb.run and not wandb.run.disabled:
                         gpu_mem_max = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
                         wandb.log({
                             "train/loss": loss.item()*config.gradient_accumulation_steps,
-                            "train/proj_mse": proj_mse_loss.item(),
-                            "train/diversity_loss": diversity_loss.item(),
-                            "train/cosine_sim": cosine_sim_metric,
+                            "train/ce_loss": ce_loss.item(),
+                            "train/sinkhorn_loss": ot_loss.item(),
                             "learning_rate": optimizer.param_groups[0]['lr'],
                             "proj_grad_mean": proj_grad_mean,
                             "step": global_step,

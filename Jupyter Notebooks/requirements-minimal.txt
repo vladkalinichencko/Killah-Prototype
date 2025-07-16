@@ -11,3 +11,5 @@ accelerate
 jiwer
 peft==0.15.2
 bitsandbytes
+geomloss
+umap-learn
