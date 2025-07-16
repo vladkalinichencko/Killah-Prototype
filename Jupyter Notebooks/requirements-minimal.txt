@@ -1,0 +1,13 @@
+torch==2.7.1
+torchaudio==2.7.1
+tqdm
+datasets
+transformers>=4.36.0
+numpy
+scikit-learn
+wandb
+librosa
+accelerate
+jiwer
+peft==0.15.2
+bitsandbytes

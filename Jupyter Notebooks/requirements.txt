@@ -1,0 +1,36 @@
+# Core ML frameworks
+torch
+torchaudio
+transformers
+accelerate
+peft
+
+# Audio processing
+soundfile
+
+# Quantization and optimization
+bitsandbytes
+optimum-quanto
+
+# Data processing and ML utilities
+numpy
+pandas
+scikit-learn
+tqdm
+
+# Evaluation metrics
+jiwer
+nltk
+rouge_score
+
+# Visualization and notebook utilities
+matplotlib
+seaborn
+ipywidgets
+
+# Hugging Face and experiment tracking
+huggingface_hub
+wandb
+
+# System utilities
+protobuf
