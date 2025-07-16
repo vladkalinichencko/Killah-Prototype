@@ -47,6 +47,10 @@ env/
 ENV/
 killah_venv/
 Jupyter Notebooks/.venv
+.venv
+Jupyter Notebooks/wandb
+Jupyter Notebooks/CoEdIT
+wandb/
 
 # PyTorch models
 # *.pt

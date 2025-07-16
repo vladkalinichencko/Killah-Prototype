@@ -4,9 +4,9 @@ from pathlib import Path
 from tqdm import tqdm
 from utils import convert_to_wav
 
-# Путь к исходному датасету
-LIBRI_ROOT = Path("C:/Users/serma/killah_project/datasets/LibriSpeech/train-clean-100")
-OUT_DIR = Path("C:/Users/serma/killah_project/datasets/LibriSpeech/processed")
+# Используем относительные пути
+LIBRI_ROOT = Path("LibriSpeech/train-clean-100")
+OUT_DIR = Path("processed")
 AUDIO_OUT_DIR = OUT_DIR / "audio"
 
 # Создаем директории, если они не существуют
@@ -65,7 +65,7 @@ for audio_file in tqdm(LIBRI_ROOT.rglob("*.flac"), desc="Processing LibriSpeech"
         print(f"Ошибка конвертации {audio_file} в WAV формат")
 
 # Сохраняем результат
-jsonl_path = OUT_DIR / "transcripts.jsonl"
+jsonl_path = Path("transcripts.jsonl")
 with open(jsonl_path, "w", encoding="utf-8") as out_f:
     for entry in TRANSCRIPTIONS:
         json.dump(entry, out_f, ensure_ascii=False)

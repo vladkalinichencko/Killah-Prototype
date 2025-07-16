@@ -38,6 +38,25 @@ from sklearn.manifold import TSNE  # NEW: t-SNE for embedding visualization
 from sklearn.model_selection import train_test_split
 import jiwer
 import random
+import warnings
+from transformers.utils import logging as hf_logging
+import matplotlib.pyplot as plt
+from umap import UMAP
+
+hf_logging.set_verbosity_error()
+# Suppress specific repetitive warnings
+warnings.filterwarnings(
+    "ignore",
+    message="Caching is incompatible with gradient checkpointing*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message="torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message="The following generation flags are not valid and may be ignored:.*",
+)
 
 # ---------------------------
 #  CONFIGURATION BLOCK
@@ -69,8 +88,8 @@ class TrainingConfig:
     batch_size_stage1: int = 8
     batch_size_stage2: int = 6
     gradient_accumulation_steps: int = 4
-    epochs_stage1: int = 5
-    epochs_stage2: int = 2
+    epochs_stage1: int = 1000
+    epochs_stage2: int = 1000
     lr_stage1: float = 5e-5
     lr_stage2: float = 1e-5
     warmup_steps: int = 200
@@ -92,7 +111,7 @@ class TrainingConfig:
 
     # W&B
     wandb_project: str = "audio-llm-asr"
-    wandb_name: str = "stage1-run-x4"
+    wandb_name: str = "stage1-run-experiment"
     wandb_api_key: str = ""
 
     # Quantization
@@ -107,7 +126,7 @@ class TrainingConfig:
     # MSE regularization
     proj_mse_weight: float = 0.1
     # NEW: Debug flag to train on a single sample and log detailed diagnostics
-    debug_overfit: bool = False
+    debug_overfit: bool = True
 
 # ----------------------------
 # 1.  Audio -> LLM Bridge
@@ -291,72 +310,78 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
 
     for batch in pbar:
         if batch is None: continue
-        
         input_values = batch['input_values'].to(device)
         target_ids = batch['target_ids'].to(device)
         
-        with autocast(device_type="cuda", dtype=dtype, enabled=torch.cuda.is_available()):
+        with autocast(device_type=device.type, dtype=dtype, enabled=(device.type != 'cpu')):
             # 1. Get audio embeddings -> downsample -> project
             audio_embeds_raw = speech_encoder(input_values).last_hidden_state
             audio_embeds_ds = downsample_and_concat(audio_embeds_raw, config.downsample_k)
             projected_embeds = projector(audio_embeds_ds.to(torch.float32))
-
+            
             # 2. Discretize
             codebook = model.llm.get_input_embeddings().weight
             quantized_embeds, indices = discretization_fn(projected_embeds, codebook)
             
-            # 3. Prepare input for LLM using the prompt
-            target_embeds = model.llm.get_input_embeddings()(target_ids.clamp(min=0)) # clamp to avoid -100 index
+            # 3. Prepare input for LLM using the prompt - FIXED TEACHER FORCING
+            batch_size = quantized_embeds.size(0)
+            bos_token_id = tokenizer.bos_token_id if tokenizer.bos_token_id is not None else tokenizer.pad_token_id
             
-            batch_inputs_embeds = []
-            batch_labels = []
-            for i in range(quantized_embeds.size(0)):
-                # [USER_prompt, audio, ASSISTANT_prompt, target]
-                inputs_embeds = torch.cat([
-                    prompt_embeds['user'], 
-                    quantized_embeds[i], 
-                    prompt_embeds['assistant'],
-                    target_embeds[i]
-                ], dim=0)
-                batch_inputs_embeds.append(inputs_embeds)
+            shifted_target_ids = torch.cat([
+                torch.full((batch_size, 1), bos_token_id, device=device, dtype=torch.long),
+                target_ids[:, :-1]
+            ], dim=1)
+            shifted_target_embeds = model.llm.get_input_embeddings()(shifted_target_ids.clamp(min=0))
 
-                # Labels: ignore everything except the target
-                labels = torch.cat([
-                    torch.full(prompt_embeds['user'].shape[:1], -100, device=device),
-                    torch.full(quantized_embeds[i].shape[:1], -100, device=device),
-                    torch.full(prompt_embeds['assistant'].shape[:1], -100, device=device),
-                    target_ids[i]
-                ], dim=0)
-                batch_labels.append(labels)
-
-            inputs_embeds = pad_sequence(batch_inputs_embeds, batch_first=True)
-            labels = pad_sequence(batch_labels, batch_first=True, padding_value=-100)
-
+            inputs_embeds = torch.cat([
+                prompt_embeds['user'].expand(batch_size, -1, -1),
+                quantized_embeds,
+                prompt_embeds['assistant'].expand(batch_size, -1, -1),
+                shifted_target_embeds
+            ], dim=1)
+            
+            prompt_len = prompt_embeds['user'].size(0) + quantized_embeds.size(1) + prompt_embeds['assistant'].size(0)
+            labels = torch.cat([
+                torch.full((batch_size, prompt_len), -100, device=device),
+                target_ids
+            ], dim=1)
+            
             # 4. Get loss
             outputs = model(inputs_embeds=inputs_embeds.to(dtype), labels=labels)
             total_loss += outputs.loss.item()
 
-            # Handle different shapes of indices from hard/soft discretization for visualization
-            if indices.ndim == 3: # soft-disc returns (B, T, k)
-                indices_for_vis = indices[:, :, 0]
-            else: # hard-disc returns (B, T)
-                indices_for_vis = indices
+        # --- DEBUG: Log target_ids, labels, decoded values, and embeddings for first sample ---
+        if target_ids.shape[0] > 0:
+            first_target_ids = target_ids[0].detach().cpu().tolist()
+            first_labels = labels[0].detach().cpu().tolist()
+            decoded_target = tokenizer.decode([tid for tid in first_target_ids if tid != -100], skip_special_tokens=True)
+            audio_embed = projected_embeds[0].detach().cpu().to(torch.float32).numpy()
+            text_embed = model.llm.get_input_embeddings()(target_ids[0].clamp(min=0)).detach().cpu().to(torch.float32).numpy()
 
-            # --- Generation for WER and examples ---
-            # Prepare prompt for generation: [USER_prompt, audio, ASSISTANT_prompt]
-            generation_prompt_embeds = torch.cat([
-                prompt_embeds['user'].expand(quantized_embeds.size(0), -1, -1),
-                quantized_embeds,
-                prompt_embeds['assistant'].expand(quantized_embeds.size(0), -1, -1)
-            ], dim=1)
+            # Log to wandb as well
+            if wandb.run and not wandb.run.disabled:
+                wandb.log({
+                    "val/target_ids_example": first_target_ids,
+                    "val/labels_example": first_labels,
+                    "val/decoded_target_example": decoded_target,
+                })
 
-            generated_ids = model.llm.generate(
-                inputs_embeds=generation_prompt_embeds.to(dtype),
-                max_new_tokens=config.max_new_tokens,
-                num_beams=config.beam_size,
-                eos_token_id=tokenizer.eos_token_id,
-                pad_token_id=tokenizer.pad_token_id,
-            )
+        # --- Generation for WER and examples ---
+        # Prepare prompt for generation: [USER_prompt, audio, ASSISTANT_prompt]
+        generation_prompt_embeds = torch.cat([
+            prompt_embeds['user'].expand(quantized_embeds.size(0), -1, -1),
+            quantized_embeds,
+            prompt_embeds['assistant'].expand(quantized_embeds.size(0), -1, -1)
+        ], dim=1)
+
+        generated_ids = model.llm.generate(
+            inputs_embeds=generation_prompt_embeds.to(dtype),
+            max_new_tokens=config.max_new_tokens,
+            num_beams=config.beam_size,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id,
+            use_cache=False,
+        )
 
         for i in range(len(generated_ids)):
             # Decode only the newly generated tokens
@@ -378,7 +403,7 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
             # Store rich visualization examples
             if len(visualization_data) < 3:
                 embed_sample = str(projected_embeds[i, :2, :5].to(torch.float32).cpu().numpy().round(2))
-                audio_as_tokens = tokenizer.decode(indices_for_vis[i], skip_special_tokens=True)
+                audio_as_tokens = tokenizer.decode(indices[i], skip_special_tokens=True)
                 
                 visualization_data.append({
                     "target": target_text,
@@ -406,8 +431,17 @@ def evaluate(model, projector, speech_encoder, loader, tokenizer, device, dtype,
 # 5.  Training loop
 # ----------------------------
 def train(config: TrainingConfig, stage: int):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    # --- Device & Dtype Selection for MPS/CUDA/CPU ---
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+        dtype = torch.float16  # MPS supports float16
+    else:
+        device = torch.device("cpu")
+        dtype = torch.float32 # CPU precision
+    print(f"Using device: {device} with dtype: {dtype}")
 
     os.makedirs(config.output_dir, exist_ok=True)
 
@@ -439,12 +473,14 @@ def train(config: TrainingConfig, stage: int):
         )
         llm.gradient_checkpointing_enable()
         llm = prepare_model_for_kbit_training(llm)
+        llm.config.use_cache = False
     else:
         llm = AutoModelForCausalLM.from_pretrained(
             config.llm_model,
             torch_dtype=dtype,
             device_map={"": device},
             attn_implementation="eager",
+            token=config.hf_token if config.hf_token else None,
         )
     # Resize token embeddings to accommodate newly added pad token
     llm.resize_token_embeddings(len(tokenizer))
@@ -545,7 +581,7 @@ def train(config: TrainingConfig, stage: int):
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda step: min(1.0, step / config.warmup_steps))
         print(f"Using LambdaLR (linear warmup) scheduler with {config.warmup_steps} steps")
 
-    scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
+    scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
 
     model = SLAMASR(llm)
 
@@ -628,6 +664,14 @@ def train(config: TrainingConfig, stage: int):
             print("Warning: Stage 1 checkpoint not found for Stage 2 initialization.")
 
     # --- 8. Training Loop ---
+    # --- Embedding history for visualization ---
+    embedding_history = {
+        'audio': [],  # list of np.arrays
+        'text': []    # list of np.arrays
+    }
+    # --- Projector weight history for norm diff ---
+    prev_proj_weights = None
+
     for epoch in range(start_epoch, epochs):
         model.train()
         projector.train()
@@ -666,77 +710,164 @@ def train(config: TrainingConfig, stage: int):
             input_values = batch['input_values'].to(device) # Shape: (B, 80, T_max)
             target_ids = batch['target_ids'].to(device)
 
-            with autocast(device_type="cuda", dtype=dtype, enabled=torch.cuda.is_available()):
+            with autocast(device_type=device.type, dtype=dtype, enabled=(device.type != 'cpu')):
                 # --- No extra normalization (Whisper already normalized) ---
                 audio_embeds_raw = speech_encoder(input_values).last_hidden_state
                 audio_embeds_ds = downsample_and_concat(audio_embeds_raw, config.downsample_k)
                 projected_embeds = projector(audio_embeds_ds.to(torch.float32))
-
                 # 2. Discretize
                 codebook = llm.get_input_embeddings().weight
                 quantized_embeds, indices = discretization_fn(projected_embeds, codebook)
-                
                 # --- Cosine Similarity Metric & Loss ---
                 cosine_sim = F.cosine_similarity(projected_embeds, quantized_embeds, dim=-1).mean()
                 cosine_sim_metric = cosine_sim.detach().item()
+                # 3. Prepare for LLM
+                target_embeds = llm.get_input_embeddings()(target_ids.clamp(min=0))
 
-                # --- Logging to W&B: t-SNE + sample transcription ---
+                # --- Logging to W&B: t-SNE + UMAP + sample transcription ---
                 if wandb.run and not wandb.run.disabled:
                     try:
-                        # 1. t-SNE of first sample (audio vs text)
-                        first_proj = projected_embeds[0].to(torch.float32).detach().cpu().numpy()
-                        first_text = target_embeds[0].to(torch.float32).detach().cpu().numpy()
-                        comb = np.concatenate([first_proj, first_text], axis=0)
-                        labels_tsne = ["audio"] * first_proj.shape[0] + ["text"] * first_text.shape[0]
-                        tsne = TSNE(n_components=2, perplexity=30, n_iter=250, metric='cosine', random_state=0)
-                        coords = tsne.fit_transform(comb)
-                        tsne_table = wandb.Table(columns=["step", "type", "x", "y"])
-                        for (x, y), lbl in zip(coords, labels_tsne):
-                            tsne_table.add_data(global_step, lbl, float(x), float(y))
-                        wandb.log({"tsne_embeddings": tsne_table}, step=global_step)
+                        # --- 1. Детальный "снимок" всех эмбеддингов (t-SNE) ---
+                        try:
+                            first_proj = projected_embeds[0].to(torch.float32).detach().cpu().numpy()
+                            first_text = target_embeds[0].to(torch.float32).detach().cpu().numpy()
+                            
+                            comb = np.concatenate([first_proj, first_text], axis=0)
+                            labels = ["audio"] * first_proj.shape[0] + ["text"] * first_text.shape[0]
 
-                        # 2. Simple generation for first sample
-                        gen_prompt = torch.cat([
-                            prompt_embeds['user'].unsqueeze(0),
-                            quantized_embeds[0:1],
-                            prompt_embeds['assistant'].unsqueeze(0)
-                        ], dim=1)
-                        gen_ids = llm.generate(
-                            inputs_embeds=gen_prompt.to(dtype),
-                            max_new_tokens=config.max_new_tokens,
-                            num_beams=1,
-                            eos_token_id=tokenizer.eos_token_id,
-                            pad_token_id=tokenizer.pad_token_id,
-                        )
-                        gen_text = tokenizer.decode(gen_ids[0][gen_prompt.size(1):], skip_special_tokens=True)
-                        target_text = tokenizer.decode([tid for tid in target_ids[0] if tid != -100], skip_special_tokens=True)
-                        wandb.log({"sample/target": target_text, "sample/generated": gen_text}, step=global_step)
-                        pbar.write(f"TARGET: {target_text} | GENERATED: {gen_text}")
+                            n_samples = comb.shape[0]
+                            perplexity = min(30, max(5, n_samples - 1))
+                            
+                            tsne = TSNE(n_components=2, perplexity=perplexity, max_iter=250, metric='cosine', random_state=0)
+                            coords = tsne.fit_transform(comb)
+                            
+                            plt.figure(figsize=(8, 8))
+                            # Разделяем координаты для разных цветов
+                            audio_coords = coords[:first_proj.shape[0]]
+                            text_coords = coords[first_proj.shape[0]:]
+                            
+                            plt.scatter(audio_coords[:, 0], audio_coords[:, 1], c='blue', label='Audio Embeddings', alpha=0.5)
+                            plt.scatter(text_coords[:, 0], text_coords[:, 1], c='orange', label='Text Embeddings', alpha=0.9, marker='x')
+                            
+                            plt.title(f't-SNE Snapshot at Step {global_step}')
+                            plt.legend()
+                            plt.tight_layout()
+                            wandb.log({"tsne_snapshot": wandb.Image(plt)}, step=global_step)
+                            plt.close()
+                        except Exception as e:
+                            pbar.write(f"t-SNE snapshot failed: {e}")
+
+                        # --- 2. Траектория средних векторов (UMAP) ---
+                        if len(embedding_history['audio']) > 1:
+                            try:
+                                audio_means = np.stack([emb.mean(axis=0) for emb in embedding_history['audio']])
+                                text_means = np.stack([emb.mean(axis=0) for emb in embedding_history['text']])
+                                all_means = np.concatenate([audio_means, text_means], axis=0)
+
+                                n_neighbors = min(5, max(2, all_means.shape[0] - 1))
+                                reducer = UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.3, metric='cosine', random_state=0)
+                                coords_umap = reducer.fit_transform(all_means)
+
+                                n = len(embedding_history['audio'])
+                                audio_coords_traj = coords_umap[:n]
+                                text_coords_traj = coords_umap[n:]
+
+                                plt.figure(figsize=(6, 6))
+                                plt.plot(audio_coords_traj[:,0], audio_coords_traj[:,1], '-o', color='blue', label='Audio Trajectory')
+                                plt.plot(text_coords_traj[:,0], text_coords_traj[:,1], '-o', color='orange', label='Text Trajectory')
+                                plt.scatter(audio_coords_traj[-1,0], audio_coords_traj[-1,1], color='blue', s=100, marker='x', label='Current Audio')
+                                plt.scatter(text_coords_traj[-1,0], text_coords_traj[-1,1], color='orange', s=100, marker='x', label='Current Text')
+                                plt.legend()
+                                plt.title('UMAP Trajectory of Mean Embeddings')
+                                plt.tight_layout()
+                                wandb.log({"umap_trajectory": wandb.Image(plt)}, step=global_step)
+                                plt.close()
+                            except Exception as e:
+                                pbar.write(f"UMAP trajectory failed: {e}")
+
+                        # --- 3. Логирование L2-нормы для проверки статичности ---
+                        try:
+                            audio_mean_norm = np.linalg.norm(embedding_history['audio'][-1].mean(axis=0))
+                            text_mean_norm = np.linalg.norm(embedding_history['text'][-1].mean(axis=0))
+                            wandb.log({
+                                "debug/audio_mean_norm": audio_mean_norm,
+                                "debug/text_mean_norm": text_mean_norm
+                            }, step=global_step)
+                        except Exception as e:
+                            pbar.write(f"Norm logging failed: {e}")
+
                     except Exception as e:
                         pbar.write(f"W&B logging failed: {e}")
 
-                # 3. Prepare for LLM
-                target_embeds = llm.get_input_embeddings()(target_ids.clamp(min=0))
+                # --- LOG EMBEDDING HISTORY FOR FIRST SAMPLE ---
+                # Проверяем shape эмбеддингов
+                proj_shape = projected_embeds[0].shape
+                text_shape = target_embeds[0].shape
+                pbar.write(f"projected_embeds[0] shape: {proj_shape}")
+                pbar.write(f"target_embeds[0] shape: {text_shape}")
+                if proj_shape[-1] != text_shape[-1]:
+                    raise ValueError(f"projected_embeds and target_embeds have different embedding dims: {proj_shape[-1]} vs {text_shape[-1]}")
+                # Для истории: падим до min длины
+                min_len = min(proj_shape[0], text_shape[0])
+                embedding_history['audio'].append(projected_embeds[0][:min_len].detach().cpu().to(torch.float32).numpy())
+                embedding_history['text'].append(target_embeds[0][:min_len].detach().cpu().to(torch.float32).numpy())
+
+                # --- LOG ТОЛЬКО ТОКЕНЫ И ТЕКСТ ---
+                # 1. Генерируем токены
+                gen_prompt = torch.cat([
+                    prompt_embeds['user'].unsqueeze(0),
+                    projected_embeds[0:1],
+                    prompt_embeds['assistant'].unsqueeze(0)
+                ], dim=1)
                 
+                was_training = llm.training
+                llm.eval()
+                with torch.no_grad():
+                    gen_ids = llm.generate(
+                        inputs_embeds=gen_prompt.to(dtype),
+                        max_new_tokens=config.max_new_tokens,
+                        num_beams=1,
+                        eos_token_id=tokenizer.eos_token_id,
+                        pad_token_id=tokenizer.pad_token_id,
+                        use_cache=False,
+                    )
+                if was_training:
+                    llm.train()
+                
+                # --- START: Corrected Teacher Forcing, Logging, and Loss Calculation ---
+                
+                # 2. Prepare data for the model (FIXED TEACHER FORCING)
+                batch_size = quantized_embeds.size(0)
+                bos_token_id = tokenizer.bos_token_id if tokenizer.bos_token_id is not None else tokenizer.pad_token_id
+
+                # Create shifted inputs: [<BOS>, token1, ..., tokenN-1]
+                shifted_target_ids = torch.cat([
+                    torch.full((batch_size, 1), bos_token_id, device=device, dtype=torch.long),
+                    target_ids[:, :-1]
+                ], dim=1)
+                shifted_target_embeds = llm.get_input_embeddings()(shifted_target_ids.clamp(min=0))
+
+                # Concatenate all parts to form the final input embeddings
                 inputs_embeds = torch.cat([
-                    prompt_embeds['user'].expand(quantized_embeds.size(0), -1, -1),
+                    prompt_embeds['user'].expand(batch_size, -1, -1),
                     quantized_embeds,
-                    prompt_embeds['assistant'].expand(quantized_embeds.size(0), -1, -1),
-                    target_embeds
+                    prompt_embeds['assistant'].expand(batch_size, -1, -1),
+                    shifted_target_embeds
                 ], dim=1)
 
+                # Create labels: Ignore prompts and audio, predict only target tokens
+                prompt_len = prompt_embeds['user'].size(0) + quantized_embeds.size(1) + prompt_embeds['assistant'].size(0)
                 labels = torch.cat([
-                    torch.full((quantized_embeds.size(0), prompt_embeds['user'].size(0)), -100, device=device),
-                    torch.full((quantized_embeds.size(0), quantized_embeds.size(1)), -100, device=device),
-                    torch.full((quantized_embeds.size(0), prompt_embeds['assistant'].size(0)), -100, device=device),
+                    torch.full((batch_size, prompt_len), -100, device=device),
                     target_ids
                 ], dim=1)
 
+                # 3. Get model outputs and calculate the main loss
                 outputs = model(inputs_embeds=inputs_embeds, labels=labels)
-                loss = outputs.loss / config.gradient_accumulation_steps
+                loss = outputs.loss
 
                 # --- Diversity (token-usage) regularization ---
-                hard_indices = indices[..., 0] if indices.ndim == 3 else indices  # (B, T)
+                hard_indices = indices[..., 0] if indices.ndim == 3 else indices
                 flat_idx = hard_indices.view(-1)
                 token_counts = torch.bincount(flat_idx, minlength=codebook.size(0)).float()
                 token_probs = token_counts / (token_counts.sum() + 1e-6)
@@ -746,13 +877,46 @@ def train(config: TrainingConfig, stage: int):
 
                 # Regularizations
                 proj_mse_loss = F.mse_loss(projected_embeds, quantized_embeds.detach())
-                # --- Additional losses disabled for Stage 1 overfit experiment ---
-                # loss = (
-                #     loss +
-                #     config.diversity_weight * diversity_loss +
-                #     config.cosine_sim_weight * (1.0 - cosine_sim) +
-                #     config.proj_mse_weight * proj_mse_loss
-                # )
+                
+                # --- Re-enable additional losses for Stage 1 ---
+                loss = (
+                    loss +
+                    config.diversity_weight * diversity_loss +
+                    config.cosine_sim_weight * (1.0 - cosine_sim) +
+                    config.proj_mse_weight * proj_mse_loss
+                )
+                
+                # Apply gradient accumulation
+                loss = loss / config.gradient_accumulation_steps
+                
+                # 4. Detailed Logging (using variables prepared above)
+                with torch.no_grad():
+                    gen_text = tokenizer.decode(gen_ids[0, gen_prompt.size(1):], skip_special_tokens=True)
+                    target_text = tokenizer.decode([tid.item() for tid in target_ids[0] if tid != -100], skip_special_tokens=True)
+                    
+                    audio_as_token_ids = indices[0]
+                    input_prompt_ids = torch.cat([user_prompt_tokens.squeeze(0), audio_as_token_ids, assistant_prompt_tokens.squeeze(0)])
+                    full_input_for_log = torch.cat([input_prompt_ids, shifted_target_ids[0]]).detach().cpu().tolist()
+                    labels_for_log = labels[0, input_prompt_ids.size(0):].detach().cpu().tolist()
+                    
+                    decoded_input = tokenizer.decode(full_input_for_log, skip_special_tokens=False)
+                    decoded_labels = tokenizer.decode([l for l in labels_for_log if l != -100], skip_special_tokens=False)
+
+                    pbar.write(f"\n--- Sample Input/Output (Step {global_step}) ---")
+                    pbar.write(f"  [INPUT TO LLM]   : {decoded_input}")
+                    pbar.write(f"  [LABELS FOR LOSS]: {decoded_labels}")
+                    pbar.write(f"  [LLM GENERATED]  : {gen_text}\n")
+                    
+                    log_dict = {
+                        "sample/target_text": target_text,
+                        "sample/llm_generated_text": gen_text,
+                        "sample/decoded_input": decoded_input,
+                        "sample/decoded_labels": decoded_labels
+                    }
+                    if wandb.run and not wandb.run.disabled:
+                        wandb.log(log_dict, step=global_step)
+
+                # --- END: Corrected Block ---
 
             if torch.isnan(loss):
                 print(f"Warning: NaN loss detected at step {global_step}. Skipping step.")
@@ -796,6 +960,15 @@ def train(config: TrainingConfig, stage: int):
             
                 global_step += 1
                 
+                # --- LOG PROJECTOR WEIGHT NORM DIFF ---
+                with torch.no_grad():
+                    curr_proj_weights = projector.net[0].weight.detach().cpu().clone()
+                    if prev_proj_weights is not None:
+                        norm_diff = (curr_proj_weights - prev_proj_weights).norm().item()
+                        if wandb.run and not wandb.run.disabled:
+                            wandb.log({"projector_weight_norm_diff": norm_diff}, step=global_step)
+                    prev_proj_weights = curr_proj_weights.clone()
+
                 # Update postfix with all metrics
                 gpu_mem_alloc = torch.cuda.memory_allocated(device) / (1024 ** 3)
                 pbar.set_postfix({
@@ -882,6 +1055,30 @@ def train(config: TrainingConfig, stage: int):
         # Reset start_batch_idx for next epoch
         start_batch_idx = 0
 
+    # --- T-SNE TRAJECTORY PLOT ---
+    if len(embedding_history['audio']) > 1:
+        # Усредняем эмбеддинги на каждом шаге
+        audio_means = np.stack([emb.mean(axis=0) for emb in embedding_history['audio']])
+        text_means = np.stack([emb.mean(axis=0) for emb in embedding_history['text']])
+        all_embeds = np.concatenate([audio_means, text_means], axis=0)
+
+        tsne = TSNE(n_components=2, perplexity=5, max_iter=250, metric='cosine', random_state=0)
+        coords = tsne.fit_transform(all_embeds)
+        n = len(embedding_history['audio'])
+        audio_coords = coords[:n]
+        text_coords = coords[n:]
+        plt.figure(figsize=(6, 6))
+        plt.plot(audio_coords[:,0], audio_coords[:,1], '-o', color='blue', label='Audio trajectory')
+        plt.plot(text_coords[:,0], text_coords[:,1], '-o', color='orange', label='Text trajectory')
+        plt.scatter(audio_coords[-1,0], audio_coords[-1,1], color='blue', s=100, marker='x', label='Final Audio')
+        plt.scatter(text_coords[-1,0], text_coords[-1,1], color='orange', s=100, marker='x', label='Final Text')
+        plt.legend()
+        plt.title('Final t-SNE trajectory of mean embeddings')
+        plt.tight_layout()
+        if wandb.run and not wandb.run.disabled:
+            wandb.log({"final_tsne_trajectory": wandb.Image(plt)}, step=global_step)
+        plt.close()
+
 # ----------------------------
 # 6.  Entry-point
 # ----------------------------
@@ -895,11 +1092,16 @@ if __name__ == "__main__":
     # Override config for different stages if needed
     if STAGE == 1:
         # Effective batch size of 32
-        config.gradient_accumulation_steps = 32 // config.batch_size_stage1
-        config.debug_overfit = True  # NEW: enable single-sample overfit mode
+        if config.debug_overfit:
+            config.gradient_accumulation_steps = 1
+        else:
+            config.gradient_accumulation_steps = 32 // config.batch_size_stage1
     elif STAGE == 2:
         # Effective batch size of 16
-        config.gradient_accumulation_steps = 16 // config.batch_size_stage2
+        if config.debug_overfit:
+            config.gradient_accumulation_steps = 1
+        else:
+            config.gradient_accumulation_steps = 16 // config.batch_size_stage2
         config.wandb_name = "stage2-run"
         config.resume = True
 
