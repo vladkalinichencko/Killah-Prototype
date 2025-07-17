@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import CryptoKit // Required for CacheManager's SHA-256 extension
+import Darwin
 
 class LLMEngine: ObservableObject {
     @Published var suggestion: String = ""
@@ -290,8 +291,18 @@ class ModelServerRunner {
 
     func stop() {
         if let process = serverProcess, process.isRunning {
-            process.terminate()
-            print("🛑 llama-server stopped")
+            print("🛑 Останавливаем llama-server с PID: \(process.processIdentifier)")
+            process.terminate() // Отправляем SIGTERM
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if process.isRunning {
+                    print("🛑 Сервер llama-server все еще работает, принудительно завершаем")
+                    kill(process.processIdentifier, SIGKILL) // Отправляем SIGKILL
+                } else {
+                    print("🛑 Сервер llama-server успешно остановлен")
+                }
+            }
+        } else {
+            print("🛑 Нет запущенного процесса сервера")
         }
         serverProcess = nil
         updateState(.stopped)
