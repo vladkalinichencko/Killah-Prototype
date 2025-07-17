@@ -236,6 +236,7 @@ struct FileSectionView: View {
 
 struct DocumentCard: View {
     let document: DocumentItem
+    @EnvironmentObject var llmEngine: LLMEngine
 
     @State private var isHovering: Bool = false
     @State private var isPersonalizing: Bool = false
@@ -300,7 +301,7 @@ struct DocumentCard: View {
                         // Depersonalize
                         isPersonalizing = true
                         Task {
-                            try? await Task.sleep(nanoseconds: 1_000_000_000) // чуть быстрее, чем персонализация
+                            await depersonalizeDocument() // чуть быстрее, чем персонализация
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 isPersonalizing = false
                                 personalized = false
@@ -310,7 +311,7 @@ struct DocumentCard: View {
                         // Personalize
                         isPersonalizing = true
                         Task {
-                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            await personalizeDocument()
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 isPersonalizing = false
                                 personalized = true
@@ -323,6 +324,37 @@ struct DocumentCard: View {
         }
         .frame(width: 160)
         .contentShape(Rectangle())
+    }
+    
+    private func personalizeDocument() async {
+        let fileURL = document.url
+        do {
+            let text = try String(contentsOf: fileURL, encoding: .utf8)
+            let outputPath = fileURL.deletingPathExtension().appendingPathExtension("pt").path
+            
+            llmEngine.generateSuggestion(
+                for: "embeddings",
+                prompt: "\(text)|||\(outputPath)",
+                tokenStreamCallback: { token in
+                    print("Token received: \(token)")
+                },
+                onComplete: { result in
+                    switch result {
+                    case .success(let suggestion):
+                        print("Embeddings generated successfully: \(suggestion)")
+                    case .failure(let error):
+                        print("Error generating embeddings: \(error)")
+                    }
+                }
+            )
+        } catch {
+            print("Failed to read file: \(error)")
+        }
+    }
+    
+    private func depersonalizeDocument() async {
+        let embedURL = document.url.deletingPathExtension().appendingPathExtension("pt")
+        try? FileManager.default.removeItem(at: embedURL)
     }
 
     // MARK: - Computed Properties
