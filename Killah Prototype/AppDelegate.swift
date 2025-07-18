@@ -1,6 +1,7 @@
 import Cocoa
 import SwiftUI
 import Combine // Added for Combine publishers
+import SwiftData
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     struct Dependencies {
@@ -8,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let audioEngine: AudioEngine
         let themeManager: ThemeManager
         let modelManager: ModelManager
+        let modelContainer: ModelContainer
     }
 
     static var dependencies: Dependencies!
@@ -119,6 +121,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         llmEngine.startEngine(for: "audio")
         llmEngine.startEngine(for: "embeddings")
         llmEngine.startEngine(for: "caret")
+        llmEngine.startEngine(for: "attention")
 
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

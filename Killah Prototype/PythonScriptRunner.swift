@@ -137,7 +137,7 @@ class BaseScriptRunner: NSObject, PythonScriptRunner {
         accumulatedOutput = ""
         isAbortedManually = false
 
-        print("➡️ Sending data to \(scriptName): \"\(data)\"")
+        print("➡️ Sending data to \(scriptName): \"\(data.suffix(100))\"")
         guard let inputData = (data + "\n").data(using: .utf8) else {
             print("❌ Error encoding data to UTF-8.")
             currentCompletionCallback?(.failure(.promptEncodingError))
@@ -421,3 +421,8 @@ class EmbeddingsRunner: BaseScriptRunner {
     }
 }
 
+class AttentionRunner: BaseScriptRunner {
+    init(modelDirectory: String?) {
+        super.init(scriptName: "attention.py", modelDirectory: modelDirectory)
+    }
+}

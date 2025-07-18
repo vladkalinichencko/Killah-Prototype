@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import SwiftData
 
 // DocumentManager removed: using SwiftUI DocumentGroup and FileDocument
 
@@ -224,18 +225,41 @@ struct CaretOverlaysView: View {
 }
 
 struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        let modelManager = ModelManager()
-        let llmEngine = LLMEngine(modelManager: modelManager)
-        let audioEngine = AudioEngine(llmEngine: llmEngine)
+    // Создаём зависимости для предварительного просмотра
+        private static var previewDependencies: (modelContainer: ModelContainer, modelManager: ModelManager, llmEngine: LLMEngine, audioEngine: AudioEngine) {
+            // Определяем схему (замените на актуальные модели)
+            let schema = Schema([
+                Embedding.self // Указываем модель Embedding, так как она используется в LLMEngine
+                // Если есть другие модели, например DocumentItem, добавьте их сюда
+            ])
+            let config = ModelConfiguration(isStoredInMemoryOnly: false)
+            let modelContainer: ModelContainer
+            do {
+                modelContainer = try ModelContainer(for: schema, configurations: config)
+                print("✅ ModelContainer initialized with storage: \(config.url.path) from ContentView")
+
+            } catch {
+                fatalError("Не удалось создать ModelContainer для предварительного просмотра: \(error)")
+            }
+
+            let modelManager = ModelManager()
+            let llmEngine = LLMEngine(modelManager: modelManager, modelContainer: modelContainer)
+            let audioEngine = AudioEngine(llmEngine: llmEngine)
+            
+            return (modelContainer, modelManager, llmEngine, audioEngine)
+        }
         
-        ContentView(
-            document: .constant(TextDocument())
-        )
-        .environmentObject(llmEngine)
-        .environmentObject(audioEngine)
-        .environmentObject(modelManager)
-    }
+        static var previews: some View {
+            let dependencies = previewDependencies
+            
+            ContentView(
+                document: .constant(TextDocument())
+            )
+            .environmentObject(dependencies.llmEngine)
+            .environmentObject(dependencies.audioEngine)
+            .environmentObject(dependencies.modelManager)
+            .environment(\.modelContext, dependencies.modelContainer.mainContext)
+        }
 }
 
 

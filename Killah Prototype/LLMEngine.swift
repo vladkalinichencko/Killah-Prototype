@@ -3,6 +3,7 @@ import Combine
 import AppKit
 import CryptoKit // Required for CacheManager's SHA-256 extension
 import Darwin
+import SwiftData
 
 class LLMEngine: ObservableObject {
     @Published var suggestion: String = ""
@@ -40,9 +41,11 @@ class LLMEngine: ObservableObject {
     private var modelServer: ModelServerRunner
     private var cancellables = Set<AnyCancellable>()
     private var currentTemperature: Float = 0.8 // Начальное значение температуры
+    private let modelContainer: ModelContainer
     
-    init(modelManager: ModelManager) {
+    init(modelManager: ModelManager,modelContainer: ModelContainer) {
         print("LLMEngine init")
+        self.modelContainer = modelContainer
         let modelDir = modelManager.getModelsDirectory().path
         
         // Initialize the model server
@@ -54,6 +57,7 @@ class LLMEngine: ObservableObject {
         runners["autocomplete"] = AutocompleteScriptRunner(modelDirectory: modelDir)
         runners["embeddings"] = EmbeddingsRunner(modelDirectory: modelDir)
         runners["caret"] = CaretScriptRunner(modelDirectory: modelDir)
+        runners["attention"] = AttentionRunner(modelDirectory: modelDir)
 
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in
@@ -82,16 +86,90 @@ class LLMEngine: ObservableObject {
     func generateSuggestion(
         for script: String,
         prompt: String,
-        loraAdapter: String? = nil, // Новый параметр для LoRA
+        loraAdapter: String? = nil,
         tokenStreamCallback: @escaping (String) -> Void,
         onComplete: @escaping (Result<String, LLMError>) -> Void
     ) {
-        // Check cache first
+        Task{
+            let personalizedDocs = await getPersonalizedDocuments()
+            let docEmbeddings = personalizedDocs.map { $0.embedding }
+            let docURLs = personalizedDocs.map { $0.url }
+            
+            if !docEmbeddings.isEmpty {
+                // Generate embedding for the prompt
+                generateEmbedding(for: prompt) { [weak self] result in
+                    guard let self = self else { return }
+                    switch result {
+                    case .success(let targetEmbedding):
+                        self.computeAttentionWeights(target: targetEmbedding, histories: docEmbeddings) { result in
+                            switch result {
+                            case .success(let weights):
+                                print("ℹ️ Веса внимания: \(weights)")
+                                let threshold = 0.5
+                                var selectedEmbeddings: [URL] = []
+                                for (index, weight) in weights.enumerated() where weight > threshold {
+                                    let embedURL = docURLs[index].deletingPathExtension().appendingPathExtension("pt")
+                                    selectedEmbeddings.append(embedURL)
+                                }
+                                print("ℹ️ Выбрано эмбеддингов: \(selectedEmbeddings.count)")
+                                
+                                var augmentedPrompt = prompt
+                                if !selectedEmbeddings.isEmpty {
+                                    augmentedPrompt += "\n[Контекст из персонализированных документов]\n"
+                                }
+                                
+                                self.continueGeneration(
+                                    script: script,
+                                    prompt: augmentedPrompt,
+                                    loraAdapter: loraAdapter,
+                                    tokenStreamCallback: tokenStreamCallback,
+                                    onComplete: onComplete
+                                )
+                            case .failure(let error):
+                                print("🫩 Ошибка вычисления весов внимания: \(error)")
+                                self.continueGeneration(
+                                    script: script,
+                                    prompt: prompt,
+                                    loraAdapter: loraAdapter,
+                                    tokenStreamCallback: tokenStreamCallback,
+                                    onComplete: onComplete
+                                )
+                            }
+                        }
+                    case .failure(let error):
+                        print("🫩 Ошибка генерации эмбеддинга для промпта: \(error)")
+                        self.continueGeneration(
+                            script: script,
+                            prompt: prompt,
+                            loraAdapter: loraAdapter,
+                            tokenStreamCallback: tokenStreamCallback,
+                            onComplete: onComplete
+                        )
+                    }
+                }
+            } else {
+                continueGeneration(
+                    script: script,
+                    prompt: prompt,
+                    loraAdapter: loraAdapter,
+                    tokenStreamCallback: tokenStreamCallback,
+                    onComplete: onComplete
+                )
+            }
+        }
+    }
+    
+    // Вспомогательный метод для продолжения генерации
+    private func continueGeneration(
+        script: String,
+        prompt: String,
+        loraAdapter: String?,
+        tokenStreamCallback: @escaping (String) -> Void,
+        onComplete: @escaping (Result<String, LLMError>) -> Void
+    ) {
         if let cachedSuggestion = CacheManager.shared.getCachedSuggestion(for: prompt, temperature: self.currentTemperature) {
             print("📦 Cache hit for prompt: \"\(prompt)\"")
-            // Split cached suggestion into tokens like in BaseScriptRunner
             let tokens = cachedSuggestion.components(separatedBy: .newlines).filter { !$0.isEmpty }
-            // Send tokens with a delay to mimic streaming
             var currentIndex = 0
             func sendNextToken() {
                 guard currentIndex < tokens.count else {
@@ -116,43 +194,100 @@ class LLMEngine: ObservableObject {
             return
         }
         print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\"")
-        // Применяем LoRA-адаптер перед отправкой промпта, если он указан
         if script == "autocomplete", let loraAdapter = loraAdapter {
             modelServer.applyLoraAdapter(adapterName: loraAdapter) { result in
                 switch result {
                 case .success:
-                    print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\" using LoRA: \(loraAdapter)")
-                    runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback,
-                        onComplete: { result in
+                    print("📄 Generating suggestion with LoRA: \(loraAdapter)")
+                    runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback) { result in
                         switch result {
                         case .success(let suggestion):
-                            print("Saving suggestion to cache for prompt \"\(prompt)\"")
                             CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
                             onComplete(.success(suggestion))
                         case .failure(let error):
                             onComplete(.failure(error))
                         }
-                    })
+                    }
                 case .failure(let error):
-                    print("🫩 Failed to apply LoRA adapter: \(error)")
                     onComplete(.failure(.scriptError("Failed to apply LoRA adapter: \(error.localizedDescription)")))
                 }
             }
         } else {
-            print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\"")
-            runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback,
-                onComplete: { result in
+            runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback) { result in
                 switch result {
                 case .success(let suggestion):
-                    print("Saving suggestion to cache for prompt \"\(prompt)\"")
                     CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
                     onComplete(.success(suggestion))
                 case .failure(let error):
                     onComplete(.failure(error))
                 }
-            })
+            }
         }
         updateEngineState(runner.state)
+    }
+    
+    func computeAttentionWeights(
+        target: [Float],
+        histories: [[Float]],
+        onComplete: @escaping (Result<[Double], LLMError>) -> Void
+    ) {
+        guard let runner = runners["attention"] else {
+            onComplete(.failure(.scriptError("Attention runner not found")))
+            return
+        }
+        
+        let inputData: [String: Any] = [
+            "target": target,
+            "histories": histories
+        ]
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: inputData)
+            guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+                onComplete(.failure(.promptEncodingError))
+                return
+            }
+            
+            runner.sendData(jsonString, tokenStreamCallback: { _ in }, onComplete: { result in
+                switch result {
+                case .success(let output):
+                    do {
+                        let weights = try JSONDecoder().decode([Double].self, from: Data(output.utf8))
+                        onComplete(.success(weights))
+                    } catch {
+                        onComplete(.failure(.scriptError("Failed to parse attention weights: \(error)")))
+                    }
+                case .failure(let error):
+                    onComplete(.failure(error))
+                }
+            })
+        } catch {
+            onComplete(.failure(.promptEncodingError))
+        }
+    }
+    
+    func generateEmbedding(
+        for text: String,
+        onComplete: @escaping (Result<[Float], LLMError>) -> Void
+    ) {
+        guard let runner = runners["embeddings"] else {
+            onComplete(.failure(.scriptError("Embeddings runner not found")))
+            return
+        }
+        let input = text
+        runner.sendData(input, tokenStreamCallback: { _ in }) { result in
+            switch result {
+            case .success(let output):
+                do {
+                    let embeddings = try JSONDecoder().decode([Float].self, from: Data(output.utf8))
+                    onComplete(.success(embeddings))
+                } catch {
+                    onComplete(.failure(.scriptError("Failed to parse embeddings: \(error)")))
+                }
+            case .failure(let error):
+                onComplete(.failure(error))
+            }
+        }
     }
     
     func sendCommand(_ command: String, for script: String) {
@@ -171,6 +306,37 @@ class LLMEngine: ObservableObject {
         
         runner.sendCommand(command)
     }
+
+    func getPersonalizedDocuments() async -> [(url: URL, content: String, embedding: [Float])] {
+        var personalizedDocs: [(url: URL, content: String, embedding: [Float])] = []
+            
+        personalizedDocs = await MainActor.run {
+            var localDocs: [(url: URL, content: String, embedding: [Float])] = []
+            let context = self.modelContainer.mainContext
+            print("ℹ️ Using model context: \(ObjectIdentifier(context))")
+            do {
+                let descriptor = FetchDescriptor<Embedding>(predicate: #Predicate { $0.isPersonalized })
+                let embeddings = try context.fetch(descriptor)
+                print("ℹ️ Найдено эмбеддингов в базе: \(embeddings.count)")
+                for embedding in embeddings {
+                    let documentURL = embedding.documentURL.standardizedFileURL
+                    if let content = try? String(contentsOf: documentURL, encoding: .utf8),
+                       let embeddingArray = try? JSONDecoder().decode([Float].self, from: embedding.embeddingData) {
+                        localDocs.append((url: documentURL, content: content, embedding: embeddingArray))
+                    } else {
+                        print("⚠️ Не удалось загрузить содержимое или эмбеддинг для документа: \(documentURL.lastPathComponent)")
+                    }
+                }
+            } catch {
+                print("🫩 Ошибка загрузки персонализированных документов: \(error)")
+            }
+            return localDocs
+        }
+        
+        print("ℹ️ Найдено персонализированных документов: \(personalizedDocs.count)")
+        return personalizedDocs
+    }
+        
     
     func stopEngine(for script: String? = nil) {
         if let script = script, let runner = runners[script] {

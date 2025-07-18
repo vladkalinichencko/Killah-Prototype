@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import SwiftData
 
 struct WelcomeView: View {
     @State private var recentDocuments: [DocumentItem] = []
@@ -237,7 +238,8 @@ struct FileSectionView: View {
 struct DocumentCard: View {
     let document: DocumentItem
     @EnvironmentObject var llmEngine: LLMEngine
-
+    @Environment(\.modelContext) var context
+    
     @State private var isHovering: Bool = false
     @State private var isPersonalizing: Bool = false
     @State private var personalized: Bool
@@ -327,34 +329,96 @@ struct DocumentCard: View {
     }
     
     private func personalizeDocument() async {
-        let fileURL = document.url
+        print("ℹ️ Model context identity: \(ObjectIdentifier(context))")
+
+        let fileURL = document.url.standardizedFileURL // Нормализация пути
+
         do {
-            let text = try String(contentsOf: fileURL, encoding: .utf8)
-            let outputPath = fileURL.deletingPathExtension().appendingPathExtension("pt").path
-            
-            llmEngine.generateSuggestion(
-                for: "embeddings",
-                prompt: "\(text)|||\(outputPath)",
-                tokenStreamCallback: { token in
-                    print("Token received: \(token)")
-                },
-                onComplete: { result in
-                    switch result {
-                    case .success(let suggestion):
-                        print("Embeddings generated successfully: \(suggestion)")
-                    case .failure(let error):
-                        print("Error generating embeddings: \(error)")
-                    }
-                }
-            )
-        } catch {
-            print("Failed to read file: \(error)")
-        }
-    }
+           // Читаем содержимое файла
+           let text = try String(contentsOf: fileURL, encoding: .utf8).replacingOccurrences(of: "\n", with: " ")
+           
+           // Проверяем, что текст не пустой
+           guard !text.isEmpty else {
+               print("⚠️ Документ пустой, генерация эмбеддинга пропущена: \(fileURL.lastPathComponent)")
+               return
+           }
+           
+           print("ℹ️ Начинается генерация эмбеддинга для документа: \(fileURL.lastPathComponent)")
+           
+           // Используем generateEmbedding для генерации эмбеддингов
+           await withCheckedContinuation { continuation in
+               llmEngine.generateEmbedding(for: text) { result in
+                   switch result {
+                   case .success(let embeddings):
+                       do {
+                           // Кодируем эмбеддинги в Data для хранения в SwiftData
+                           let embeddingData = try JSONEncoder().encode(embeddings)
+                           
+                           // Ищем существующую запись в SwiftData
+                           let descriptor = FetchDescriptor<Embedding>(predicate: #Predicate { $0.documentID == fileURL.path })
+                           if let existing = try? context.fetch(descriptor).first {
+                               // Обновляем существующую запись
+                               existing.embeddingData = embeddingData
+                               existing.isPersonalized = true
+                               do {
+                                   try context.save()
+                                   print("✅ Successfully saved context for document: \(fileURL.lastPathComponent)")
+                               } catch {
+                                   print("🫩 Failed to save context: \(error)")
+                               }
+                               print("✅ Обновлён существующий эмбеддинг для документа: \(fileURL.lastPathComponent)")
+                           } else {
+                               // Создаём новую запись
+                               let embedding = Embedding(
+                                   documentID: fileURL.path,
+                                   embeddingData: embeddingData,
+                                   isPersonalized: true,
+                                   documentURL: fileURL
+                               )
+                               DispatchQueue.main.async {
+                                   do {
+                                       context.insert(embedding)
+                                       try context.save()
+                                       print("✅ Successfully saved context for document: \(fileURL.lastPathComponent)")
+                                       let allEmbeddings = try? context.fetch(FetchDescriptor<Embedding>())
+                                       print("ℹ️ Всего эмбеддингов в базе: \(allEmbeddings?.count ?? 0)")
+                                   } catch {
+                                       print("🫩 Failed to save context: \(error.localizedDescription)")
+                                   }
+                               }
+                           }
+                       } catch {
+                           print("🫩 Ошибка сохранения эмбеддингов в SwiftData: \(error)")
+                       }
+                   case .failure(let error):
+                       print("🫩 Ошибка генерации эмбеддингов: \(error)")
+                   }
+                   continuation.resume()
+               }
+           }
+       } catch {
+           print("🫩 Ошибка чтения файла: \(error)")
+       }
+   }
+    
     
     private func depersonalizeDocument() async {
-        let embedURL = document.url.deletingPathExtension().appendingPathExtension("pt")
-        try? FileManager.default.removeItem(at: embedURL)
+        do {
+            let documentID = document.url.path
+            // Используем #Predicate с явным указанием типов
+            let descriptor = FetchDescriptor<Embedding>(predicate: #Predicate<Embedding> { embedding in
+                embedding.documentID == documentID
+            })
+            if let embedding = try context.fetch(descriptor).first {
+                context.delete(embedding)
+                try context.save()
+                print("✅ Эмбеддинг удалён из SwiftData для документа: \(document.url.lastPathComponent)")
+            } else {
+                print("ℹ️ Эмбеддинг для документа \(document.url.lastPathComponent) не найден")
+            }
+        } catch {
+            print("🫩 Ошибка удаления эмбеддинга: \(error)")
+        }
     }
 
     // MARK: - Computed Properties

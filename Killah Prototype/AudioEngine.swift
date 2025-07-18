@@ -412,6 +412,7 @@ class AudioEngine: NSObject, ObservableObject, SFSpeechRecognizerDelegate {
             }
         }
     }
+    
     private func processEmbeddings(_ embeddingsPath: String) {
         llmEngine.startEngine(for: "caret")
         llmEngine.generateSuggestion(

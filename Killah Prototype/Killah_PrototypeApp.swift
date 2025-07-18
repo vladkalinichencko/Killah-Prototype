@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import SwiftData
 
 @main
 struct Killah_PrototypeApp: App {
@@ -9,25 +10,36 @@ struct Killah_PrototypeApp: App {
     @StateObject private var modelManager: ModelManager
     @StateObject private var themeManager: ThemeManager
     @StateObject private var appState = AppStateManager.shared
+    private var modelContainer: ModelContainer
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
+        let schema = Schema([Embedding.self])
+        let modelConfiguration = ModelConfiguration(isStoredInMemoryOnly: false)
+        do {
+            modelContainer = try ModelContainer(for: schema, configurations: modelConfiguration)
+            print("✅ ModelContainer initialized with storage: \(modelConfiguration.url.path) from App")
+        } catch {
+            fatalError("Failed to create ModelContainer: \(error)")
+        }
+        
         let createdModelManager = ModelManager()
         let createdThemeManager = ThemeManager()
-        let createdLlmEngine = LLMEngine(modelManager: createdModelManager)
+        let createdLlmEngine = LLMEngine(modelManager: createdModelManager, modelContainer: modelContainer)
         let createdAudioEngine = AudioEngine(llmEngine: createdLlmEngine)
 
         _modelManager = StateObject(wrappedValue: createdModelManager)
         _themeManager = StateObject(wrappedValue: createdThemeManager)
         _llmEngine = StateObject(wrappedValue: createdLlmEngine)
         _audioEngine = StateObject(wrappedValue: createdAudioEngine)
-
+        print("ℹ️ Main context in Killah_PrototypeApp: \(ObjectIdentifier(modelContainer.mainContext))")
         AppDelegate.dependencies = .init(
             llmEngine: createdLlmEngine,
             audioEngine: createdAudioEngine,
             themeManager: createdThemeManager,
-            modelManager: createdModelManager
+            modelManager: createdModelManager,
+            modelContainer: modelContainer
         )
     }
 
@@ -36,6 +48,7 @@ struct Killah_PrototypeApp: App {
         // Welcome окно для macOS - открывается программно
         Window("Welcome", id: "welcome") {
             WelcomeView()
+                .environment(\.modelContext, modelContainer.mainContext)
                 .environmentObject(llmEngine)
                 .environmentObject(audioEngine)
                 .environmentObject(themeManager)
@@ -69,6 +82,7 @@ struct Killah_PrototypeApp: App {
         // DocumentGroup для интеграции с системой - создается только при необходимости
         DocumentGroup(newDocument: TextDocument()) { file in
             ContentView(document: file.$document)
+                .environment(\.modelContext, modelContainer.mainContext)
                 .environmentObject(llmEngine)
                 .environmentObject(audioEngine)
                 .environmentObject(themeManager)
@@ -105,6 +119,7 @@ struct Killah_PrototypeApp: App {
         WindowGroup {
             if appState.showWelcome {
                 WelcomeView()
+                    .environment(\.modelContext, modelContainer.mainContext)
                     .environmentObject(llmEngine)
                     .environmentObject(audioEngine)
                     .environmentObject(themeManager)
@@ -119,6 +134,7 @@ struct Killah_PrototypeApp: App {
                         get: { appState.openDocuments[index] },
                         set: { appState.openDocuments[index] = $0 }
                     ))
+                    .environment(\.modelContext, modelContainer.mainContext)
                     .environmentObject(llmEngine)
                     .environmentObject(audioEngine)
                     .environmentObject(themeManager)
