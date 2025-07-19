@@ -17,6 +17,7 @@ struct WelcomeView: View {
     @EnvironmentObject var audioEngine: AudioEngine
     @EnvironmentObject var themeManager: ThemeManager
     @EnvironmentObject var modelManager: ModelManager
+    @Environment(\.modelContext) var context
 
     var body: some View {
         ZStack {
@@ -135,7 +136,7 @@ struct WelcomeView: View {
             }
         )
         .onAppear {
-            recentDocuments = DocumentItem.loadFromDirectory()
+            recentDocuments = DocumentItem.loadFromDirectory(context: context)
 
         }
         .fileImporter(

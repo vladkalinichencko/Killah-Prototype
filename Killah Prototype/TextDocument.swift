@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
 import Foundation
-
+import SwiftData
 
 struct TextDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.plainText, .rtf] }
@@ -74,7 +74,7 @@ struct DocumentItem: Identifiable {
         return formatter.string(from: date)
     }
     
-    static func loadFromDirectory() -> [DocumentItem] {
+    static func loadFromDirectory(context: ModelContext) -> [DocumentItem] {
         let fileManager = FileManager.default
         
         // Используем системную папку Documents пользователя
@@ -104,12 +104,25 @@ struct DocumentItem: Identifiable {
                         .joined(separator: " ")
                     let date = (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? Date()
                     
+                    // Проверяем, есть ли эмбеддинг в базе данных для этого URL
+                    let isPersonalized: Bool
+                    do {
+                        let descriptor = FetchDescriptor<Embedding>(
+                            predicate: #Predicate { $0.documentURL == url && $0.isPersonalized }
+                        )
+                        let embeddings = try context.fetch(descriptor)
+                        isPersonalized = !embeddings.isEmpty
+                    } catch {
+                        print("🫩 Ошибка при проверке персонализации для \(url.lastPathComponent): \(error)")
+                        isPersonalized = false
+                    }
+                    
                     return DocumentItem(
                         url: url,
                         filename: url.lastPathComponent,
                         contentPreview: preview,
                         date: date,
-                        isPersonalized: Bool.random() // Временно случайное значение для демонстрации
+                        isPersonalized: isPersonalized // Временно случайное значение для демонстрации
                     )
                 }
             
