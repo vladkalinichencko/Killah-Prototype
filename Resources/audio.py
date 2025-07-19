@@ -156,11 +156,7 @@ class AudioProcessor:
             print(f"Projected embeddings shape: {projected_embeddings.shape}", file=sys.stderr, flush=True)
             print(f"Final embeddings shape: {final_embeddings.shape}", file=sys.stderr, flush=True)
 
-            output_path = file_path.replace(".wav", "_embeddings.pt")
-            torch.save({'projected_audio_embeds': final_embeddings}, output_path)
-            print(f"Projected embeddings saved to {output_path}", file=sys.stderr, flush=True)
-            
-            return final_embeddings
+            return {"type": "projected_audio_embeds", "embeddings": final_embeddings.tolist()}
 
         except Exception as e:
             print(f"Error processing audio: {e}", file=sys.stderr, flush=True)
@@ -184,10 +180,11 @@ def process_audio_file(file_path):
     if not audio_processor or not audio_processor.projector or not audio_processor.whisper_model or not audio_processor.whisper_processor:
         print("Audio processor not initialized", file=sys.stderr, flush=True)
         return None
-    embeddings = audio_processor.process_audio(file_path)
-    if embeddings is not None:
+    result = audio_processor.process_audio(file_path)
+    if result is not None:
+        print(json.dumps(result), flush=True)
         print("END", flush=True)
-    return embeddings
+    return result
     
 if __name__ == "__main__":
     print("Audio.py main loop started.", file=sys.stderr, flush=True)

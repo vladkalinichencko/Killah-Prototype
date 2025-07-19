@@ -498,7 +498,8 @@ class Coordinator: NSObject, NSTextViewDelegate {
 
             llmEngine.generateSuggestion(
                 for: "autocomplete",
-                prompt: currentPromptForLLM) { [weak textView] token in
+                prompt: currentPromptForLLM,
+                isFromCaret: false) { [weak textView] token in
                 DispatchQueue.main.async {
                     textView?.appendGhostTextToken(token)
                 }

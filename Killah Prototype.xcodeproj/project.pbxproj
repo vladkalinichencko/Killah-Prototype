@@ -11,8 +11,8 @@
 		408AC4BF2DC7B6EE00ED87D4 /* autocomplete.py in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BC2DC7B6EE00ED87D4 /* autocomplete.py */; };
 		408AC4C02DC7B6EE00ED87D4 /* requirements.txt in Resources */ = {isa = PBXBuildFile; fileRef = 408AC4BD2DC7B6EE00ED87D4 /* requirements.txt */; };
 		40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */ = {isa = PBXBuildFile; fileRef = 40C0B9A32E15258500F0DD0D /* main_llm.py */; };
+		7603C6562E2BB74F008B24DF /* caret.py in Resources */ = {isa = PBXBuildFile; fileRef = 7603C6552E2BB74F008B24DF /* caret.py */; };
 		761406632E2980D500481A70 /* attention.py in Resources */ = {isa = PBXBuildFile; fileRef = 761406622E2980D500481A70 /* attention.py */; };
-		7634DCEB2E241AA800C5A3D9 /* embedding_processor.py in Resources */ = {isa = PBXBuildFile; fileRef = 7634DCEA2E241AA800C5A3D9 /* embedding_processor.py */; };
 		7634DCF12E241CBD00C5A3D9 /* text_to_embeddings.py in Resources */ = {isa = PBXBuildFile; fileRef = 7634DCF02E241CBD00C5A3D9 /* text_to_embeddings.py */; };
 		7634DCF32E24282100C5A3D9 /* config.env in Resources */ = {isa = PBXBuildFile; fileRef = 7634DCF22E24282100C5A3D9 /* config.env */; };
 		766B4C212E1C5B93008E73F5 /* min_p_sampling.py in Resources */ = {isa = PBXBuildFile; fileRef = 766B4C202E1C5B93008E73F5 /* min_p_sampling.py */; };
@@ -26,8 +26,8 @@
 		408B41602DCBA8A800318056 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		40C0B9A32E15258500F0DD0D /* main_llm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = main_llm.py; path = Resources/main_llm.py; sourceTree = "<group>"; };
 		40C7315F2DC63936004D753D /* Killah Prototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Killah Prototype.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7603C6552E2BB74F008B24DF /* caret.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = caret.py; path = Resources/caret.py; sourceTree = "<group>"; };
 		761406622E2980D500481A70 /* attention.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = attention.py; path = Resources/attention.py; sourceTree = "<group>"; };
-		7634DCEA2E241AA800C5A3D9 /* embedding_processor.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = embedding_processor.py; path = Resources/embedding_processor.py; sourceTree = "<group>"; };
 		7634DCF02E241CBD00C5A3D9 /* text_to_embeddings.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = text_to_embeddings.py; path = Resources/text_to_embeddings.py; sourceTree = "<group>"; };
 		7634DCF22E24282100C5A3D9 /* config.env */ = {isa = PBXFileReference; lastKnownFileType = text; name = config.env; path = Resources/config.env; sourceTree = "<group>"; };
 		766B4C202E1C5B93008E73F5 /* min_p_sampling.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = min_p_sampling.py; path = Resources/min_p_sampling.py; sourceTree = "<group>"; };
@@ -56,10 +56,10 @@
 		40C731562DC63936004D753D = {
 			isa = PBXGroup;
 			children = (
+				7603C6552E2BB74F008B24DF /* caret.py */,
 				761406622E2980D500481A70 /* attention.py */,
 				7634DCF22E24282100C5A3D9 /* config.env */,
 				7634DCF02E241CBD00C5A3D9 /* text_to_embeddings.py */,
-				7634DCEA2E241AA800C5A3D9 /* embedding_processor.py */,
 				766B4C202E1C5B93008E73F5 /* min_p_sampling.py */,
 				40C0B9A32E15258500F0DD0D /* main_llm.py */,
 				76D31FC12E01EC4A00F35B70 /* audio.py */,
@@ -148,10 +148,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7603C6562E2BB74F008B24DF /* caret.py in Resources */,
 				761406632E2980D500481A70 /* attention.py in Resources */,
 				7634DCF32E24282100C5A3D9 /* config.env in Resources */,
 				7634DCF12E241CBD00C5A3D9 /* text_to_embeddings.py in Resources */,
-				7634DCEB2E241AA800C5A3D9 /* embedding_processor.py in Resources */,
 				766B4C212E1C5B93008E73F5 /* min_p_sampling.py in Resources */,
 				40C0B9A42E15258500F0DD0D /* main_llm.py in Resources */,
 				76D31FC22E01EC4A00F35B70 /* audio.py in Resources */,

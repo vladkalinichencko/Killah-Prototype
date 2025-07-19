@@ -42,7 +42,7 @@ class TextEmbeddingGenerator:
         """Process text and save embeddings to a file."""
         embeddings = self.generate_embeddings(text)
         if embeddings is not None:
-            return embeddings
+            return {"type": "text_embeds", "embeddings": embeddings}
         return None
 
 if __name__ == "__main__":

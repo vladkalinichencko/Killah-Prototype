@@ -255,8 +255,12 @@ class CaretUICoordinator: ObservableObject {
     func generateFromTextPrompt(selectedText: String? = nil) {
         guard !promptText.isEmpty || selectedText != nil else { return }
         isGenerating = true
-        let textToProcess = selectedText ?? promptText
-        let tempPath = FileManager.default.temporaryDirectory.appendingPathComponent("text_embeddings_\(UUID().uuidString).pt").path
+        let finalPrompt: String
+        if let selected = selectedText, !selected.isEmpty {
+            finalPrompt = promptText.isEmpty ? selected : "\(selected) : \(promptText)"
+        } else {
+            finalPrompt = promptText
+        }
         
         llmEngine.startEngine(for: "embeddings")
         let checkInterval: TimeInterval = 0.1
@@ -272,22 +276,22 @@ class CaretUICoordinator: ObservableObject {
 
         // Проверяем, запустился ли движок после ожидания
         if self.llmEngine.getRunnerState(for: "embeddings") == .running {
-            
             llmEngine.generateSuggestion(
                 for: "embeddings",
-                prompt: "\(textToProcess)|||\(tempPath)",
+                prompt: finalPrompt,
+                isFromCaret: false,
                 tokenStreamCallback: { token in
                     // Коллбэки могут приходить в любом потоке,
                     // поэтому для любых обновлений UI лучше явно переключаться в главный поток.
                     DispatchQueue.main.async {
-                        print("Embeddings token received: \(token)")
+                        print("Embeddings token received: \(token.prefix(100))")
                     }
                 },
                 onComplete: { [weak self] result in
                     guard let self = self else { return }
                     switch result {
-                    case .success:
-                        self.processEmbeddings(tempPath)
+                    case .success(let embeddingsJson):
+                        self.processEmbeddings(embeddingsJson)
                     case .failure(let error):
                         print("Error generating embeddings: \(error)")
                         self.isGenerating = false
@@ -297,24 +301,26 @@ class CaretUICoordinator: ObservableObject {
         }
     }
     
-    private func processEmbeddings(_ embeddingsPath: String) {
+    private func processEmbeddings(_ embeddingsJson: String) {
+        llmEngine.startEngine(for: "caret")
         let checkInterval: TimeInterval = 0.1
         let maxAttempts = 50
         var attempts = 0
-
+        
         // В цикле ждем, пока Python-скрипт не будет готов к работе.
         // Это ожидание происходит в фоновом потоке.
         while self.llmEngine.getRunnerState(for: "caret") != .running && attempts < maxAttempts {
             Thread.sleep(forTimeInterval: checkInterval) // Пауза в фоновом потоке
             attempts += 1
         }
-
+        
         // Проверяем, запустился ли движок после ожидания
         if self.llmEngine.getRunnerState(for: "caret") == .running {
-            llmEngine.startEngine(for: "caret")
+            let prompt = "\(embeddingsJson)|||Generate text based on this input:"
             llmEngine.generateSuggestion(
                 for: "caret",
-                prompt: embeddingsPath,
+                prompt: prompt,
+                isFromCaret: true,
                 tokenStreamCallback: { token in
                     // Коллбэки могут приходить в любом потоке,
                     // поэтому для любых обновлений UI лучше явно переключаться в главный поток.
@@ -328,16 +334,14 @@ class CaretUICoordinator: ObservableObject {
                     switch result {
                     case .success(let text):
                         self.textInsertionHandler?(text)
-                        do {
-                            try FileManager.default.removeItem(atPath: embeddingsPath)
-                        } catch {
-                            print("Failed to delete temp file: \(error)")
-                        }
                     case .failure(let error):
                         print("Error processing embeddings: \(error)")
                     }
                 }
             )
+        } else {
+            print("❌ caret.py failed to reach running state after \(Double(maxAttempts) * checkInterval) seconds")
+            self.isGenerating = false
         }
     }
     

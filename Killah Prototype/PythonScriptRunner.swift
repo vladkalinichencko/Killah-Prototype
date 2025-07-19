@@ -411,7 +411,7 @@ class AutocompleteScriptRunner: BaseScriptRunner {
 
 class CaretScriptRunner: BaseScriptRunner {
     init(modelDirectory: String?) {
-        super.init(scriptName: "embedding_processor.py", modelDirectory: modelDirectory)
+        super.init(scriptName: "caret.py", modelDirectory: modelDirectory)
     }
 }
 

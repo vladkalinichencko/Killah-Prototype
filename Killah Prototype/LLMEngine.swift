@@ -5,9 +5,16 @@ import CryptoKit // Required for CacheManager's SHA-256 extension
 import Darwin
 import SwiftData
 
+// Структура для декодирования JSON из text_to_embeddings.py
+struct EmbeddingResponse: Codable {
+    let type: String
+    let embeddings: [Float]
+}
+
 class LLMEngine: ObservableObject {
     @Published var suggestion: String = ""
     @Published var engineState: EngineState = .idle
+    private var activeTasks: [String: Bool] = [:] // Отслеживание активных задач
     
     enum EngineState: Equatable {
         case idle
@@ -86,22 +93,32 @@ class LLMEngine: ObservableObject {
     func generateSuggestion(
         for script: String,
         prompt: String,
+        isFromCaret: Bool = false,  // Флаг, указывающий, что промпт содержит эмбеддинги
         loraAdapter: String? = nil,
         tokenStreamCallback: @escaping (String) -> Void,
         onComplete: @escaping (Result<String, LLMError>) -> Void
     ) {
+        guard let runner = runners[script] else {
+            print("❌ Unknown script: \(script)")
+            onComplete(.failure(.scriptError("Unknown script: \(script)")))
+            return
+        }
+        if activeTasks[script] == true {
+            print("⏳ Waiting for previous task in \(script) to complete")
+            runner.abortSuggestion(notifyPython: true) // Прерываем предыдущую задачу
+        }
+        activeTasks[script] = true
         Task{
             let personalizedDocs = await getPersonalizedDocuments()
             let docEmbeddings = personalizedDocs.map { $0.embedding }
             let docURLs = personalizedDocs.map { $0.url }
             
             if !docEmbeddings.isEmpty {
-                // Generate embedding for the prompt
-                generateEmbedding(for: prompt) { [weak self] result in
-                    guard let self = self else { return }
-                    switch result {
-                    case .success(let targetEmbedding):
-                        self.computeAttentionWeights(target: targetEmbedding, histories: docEmbeddings) { result in
+                if isFromCaret {
+                    // Извлекаем эмбеддинги из промпта
+                    let embeddingsJson = extractEmbeddingsJson(from: prompt)
+                    if let embeddings = parseEmbeddings(from: embeddingsJson) {
+                        computeAttentionWeights(target: embeddings, histories: docEmbeddings) { result in
                             switch result {
                             case .success(let weights):
                                 print("ℹ️ Веса внимания: \(weights)")
@@ -115,12 +132,12 @@ class LLMEngine: ObservableObject {
                                 
                                 var augmentedPrompt = prompt
                                 if !selectedEmbeddings.isEmpty {
-                                    augmentedPrompt += "\n[Контекст из персонализированных документов]\n"
+                                    augmentedPrompt += "[Контекст из персонализированных документов]"
                                 }
                                 
                                 self.continueGeneration(
                                     script: script,
-                                    prompt: augmentedPrompt,
+                                    prompt: augmentedPrompt.replacingOccurrences(of: "\n", with: " "),
                                     loraAdapter: loraAdapter,
                                     tokenStreamCallback: tokenStreamCallback,
                                     onComplete: onComplete
@@ -136,15 +153,67 @@ class LLMEngine: ObservableObject {
                                 )
                             }
                         }
-                    case .failure(let error):
-                        print("🫩 Ошибка генерации эмбеддинга для промпта: \(error)")
-                        self.continueGeneration(
+                    } else {
+                        print("🫩 Ошибка: не удалось извлечь или распарсить эмбеддинги из промпта")
+                        continueGeneration(
                             script: script,
                             prompt: prompt,
                             loraAdapter: loraAdapter,
                             tokenStreamCallback: tokenStreamCallback,
                             onComplete: onComplete
                         )
+                    }
+                } else {
+                    // Generate embedding for the prompt
+                    generateEmbedding(for: prompt) { [weak self] result in
+                        guard let self = self else { return }
+                        switch result {
+                        case .success(let targetEmbedding):
+                            self.computeAttentionWeights(target: targetEmbedding, histories: docEmbeddings) { result in
+                                switch result {
+                                case .success(let weights):
+                                    print("ℹ️ Веса внимания: \(weights)")
+                                    let threshold = 0.5
+                                    var selectedEmbeddings: [URL] = []
+                                    for (index, weight) in weights.enumerated() where weight > threshold {
+                                        let embedURL = docURLs[index].deletingPathExtension().appendingPathExtension("pt")
+                                        selectedEmbeddings.append(embedURL)
+                                    }
+                                    print("ℹ️ Выбрано эмбеддингов: \(selectedEmbeddings.count)")
+                                    
+                                    var augmentedPrompt = prompt
+                                    if !selectedEmbeddings.isEmpty {
+                                        augmentedPrompt += "[Контекст из персонализированных документов]"
+                                    }
+                                    
+                                    self.continueGeneration(
+                                        script: script,
+                                        prompt: augmentedPrompt.replacingOccurrences(of: "\n", with: " "),
+                                        loraAdapter: loraAdapter,
+                                        tokenStreamCallback: tokenStreamCallback,
+                                        onComplete: onComplete
+                                    )
+                                case .failure(let error):
+                                    print("🫩 Ошибка вычисления весов внимания: \(error)")
+                                    self.continueGeneration(
+                                        script: script,
+                                        prompt: prompt,
+                                        loraAdapter: loraAdapter,
+                                        tokenStreamCallback: tokenStreamCallback,
+                                        onComplete: onComplete
+                                    )
+                                }
+                            }
+                        case .failure(let error):
+                            print("🫩 Ошибка генерации эмбеддинга для промпта: \(error)")
+                            self.continueGeneration(
+                                script: script,
+                                prompt: prompt,
+                                loraAdapter: loraAdapter,
+                                tokenStreamCallback: tokenStreamCallback,
+                                onComplete: onComplete
+                            )
+                        }
                     }
                 }
             } else {
@@ -187,19 +256,19 @@ class LLMEngine: ObservableObject {
             sendNextToken()
             return
         }
-        
         guard let runner = runners[script] else {
             print("❌ Unknown script: \(script)")
             onComplete(.failure(.scriptError("Unknown script: \(script)")))
             return
         }
-        print("📄 Generating suggestion for \(script) with prompt: \"\(prompt)\"")
+        print("📄 Generating suggestion for \(script) with prompt: \"\(prompt.prefix(100))\"")
         if script == "autocomplete", let loraAdapter = loraAdapter {
             modelServer.applyLoraAdapter(adapterName: loraAdapter) { result in
                 switch result {
                 case .success:
                     print("📄 Generating suggestion with LoRA: \(loraAdapter)")
                     runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback) { result in
+                        self.activeTasks[script] = false // Сбрасываем состояние после завершения
                         switch result {
                         case .success(let suggestion):
                             CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
@@ -214,6 +283,7 @@ class LLMEngine: ObservableObject {
             }
         } else {
             runner.sendData(prompt, tokenStreamCallback: tokenStreamCallback) { result in
+                self.activeTasks[script] = false // Сбрасываем состояние после завершения
                 switch result {
                 case .success(let suggestion):
                     CacheManager.shared.setCachedSuggestion(suggestion, for: prompt, temperature: self.currentTemperature)
@@ -224,6 +294,32 @@ class LLMEngine: ObservableObject {
             }
         }
         updateEngineState(runner.state)
+    }
+    
+    // Вспомогательные функции для извлечения и парсинга эмбеддингов
+    private func extractEmbeddingsJson(from prompt: String) -> String? {
+        // Предполагаем, что формат промпта: "embeddingsJson|||prompt_text"
+        let parts = prompt.split(separator: "|||", maxSplits: 1)
+        if parts.count == 2 {
+            return String(parts[0])
+        }
+        return nil
+    }
+    
+    private func parseEmbeddings(from jsonString: String?) -> [Float]? {
+        guard let jsonString = jsonString else { return nil }
+        do {
+            let data = jsonString.data(using: .utf8)!
+            let json = try JSONSerialization.jsonObject(with: data, options: []) as! [String: Any]
+            if let embeddings = json["embeddings"] as? [Double] {
+                return embeddings.map { Float($0) }
+            } else if let embeddings = json["embeddings"] as? [Float] {
+                return embeddings
+            }
+        } catch {
+            print("🫩 Ошибка парсинга JSON эмбеддингов: \(error)")
+        }
+        return nil
     }
     
     func computeAttentionWeights(
@@ -279,8 +375,12 @@ class LLMEngine: ObservableObject {
             switch result {
             case .success(let output):
                 do {
-                    let embeddings = try JSONDecoder().decode([Float].self, from: Data(output.utf8))
-                    onComplete(.success(embeddings))
+                    let data = try JSONDecoder().decode(EmbeddingResponse.self, from: Data(output.utf8))
+                    if data.type == "text_embeds" {
+                        onComplete(.success(data.embeddings))
+                    } else {
+                        onComplete(.failure(.scriptError("Invalid embeddings type: \(data.type)")))
+                    }
                 } catch {
                     onComplete(.failure(.scriptError("Failed to parse embeddings: \(error)")))
                 }
