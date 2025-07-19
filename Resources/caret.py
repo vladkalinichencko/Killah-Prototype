@@ -54,7 +54,7 @@ def stream_from_embeddings_and_prompt(model, embeddings=None, embeddings_type=No
 
     response = model.create_completion(
         prompt=full_prompt,
-        max_tokens=100,
+        max_tokens=10,
         temperature=0.8,
         min_p=0.1,
         stream=True

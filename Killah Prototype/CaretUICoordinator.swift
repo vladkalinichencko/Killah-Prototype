@@ -42,6 +42,7 @@ class CaretUICoordinator: ObservableObject {
         return isRecording
     }
     var textInsertionHandler: ((String) -> Void)? // Callback to insert text
+    weak var textView: CustomInlineNSTextView? // Связь с CustomInlineNSTextView
 
     private var audioEngine: AudioEngine
     private var llmEngine: LLMEngine
@@ -321,21 +322,28 @@ class CaretUICoordinator: ObservableObject {
                 for: "caret",
                 prompt: prompt,
                 isFromCaret: true,
-                tokenStreamCallback: { token in
-                    // Коллбэки могут приходить в любом потоке,
-                    // поэтому для любых обновлений UI лучше явно переключаться в главный поток.
+                tokenStreamCallback: { [weak self] token in
                     DispatchQueue.main.async {
-                        print("Processed text embeddings token received: \(token)")
+                        self?.textInsertionHandler?(token)
                     }
                 },
                 onComplete: { [weak self] result in
-                    guard let self = self else { return }
-                    self.isGenerating = false
-                    switch result {
-                    case .success(let text):
-                        self.textInsertionHandler?(text)
-                    case .failure(let error):
-                        print("Error processing embeddings: \(error)")
+                    DispatchQueue.main.async {
+                        guard let self = self else { return }
+                        self.isGenerating = false
+                        switch result {
+                        case .success(let fullSuggestion):
+                            if fullSuggestion.isEmpty {
+                                self.textView?.clearGhostText()
+                            }
+                        case .failure(let error):
+                            print("❌ Generation failed: \(error)")
+                            if case LLMEngine.LLMError.aborted = error {
+                                // Ничего не делаем при прерывании
+                            } else {
+                                self.textView?.clearGhostText()
+                            }
+                        }
                     }
                 }
             )

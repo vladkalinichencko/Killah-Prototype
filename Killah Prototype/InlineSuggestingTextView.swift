@@ -109,6 +109,14 @@ struct InlineSuggestingTextView: NSViewRepresentable {
     
     private func setupCustomCaret(_ textView: CustomInlineNSTextView, context: Context) {
         let caretCoordinator = CaretUICoordinator(llmEngine: llmEngine, audioEngine: audioEngine)
+        // Set the textView reference
+        caretCoordinator.textView = textView
+        // Set the textInsertionHandler to append tokens to the text view
+        caretCoordinator.textInsertionHandler = { [weak textView] token in
+            DispatchQueue.main.async {
+                textView?.appendGhostTextToken(token)
+            }
+        }
         context.coordinator.caretCoordinator = caretCoordinator
         onCoordinatorChange?(caretCoordinator)
 
